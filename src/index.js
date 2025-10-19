@@ -692,6 +692,18 @@ bot.on('message', async (msg) => {
     if (awaitingDeposit[chatId]) {
       const amount = parseFloat(text);
 
+      if (isNaN(amount)) {
+        bot.sendMessage(chatId, 'Сумма перевода должно быть численное значение!', {
+          reply_markup: {
+            inline_keyboard: [
+              [{text: '❌ Отмена', callback_data: 'return'}]
+            ]
+          }
+        })
+        
+        return;
+      }
+
       await bot.sendMessage(chatId, `Отправьте ${amount}₽ на указанные реквизиты.
 ${paymentDetails}        
 После оплаты отправьте скриншот!`, {
