@@ -102,13 +102,17 @@ await database.ref('userBalances').once('value').then((snapshot) => {
   userBalances = snapshot.val() || [];
 })
 
+let pendingChecks = {};
+database.ref('pendingChecks').once('value').then((snapshot) => {
+  pendingChecks = snapshot.val() || {};
+})
+
 const userCarts = {};
 
 let awaitingDeposit = {};
 let awaitingReceipt = {};
 let awaitingPubgNickname = {};
 let awaitingPubgId = {};
-let pendingChecks = {};
 let awaitingToChangeProduct = {};
 let awaitingNewProductLabel = {};
 let awaitingNewProductPrice = {};
@@ -120,10 +124,6 @@ let awaitingToAddAdmin = {};
 let awaitingToRemoveAdmin = {};
 let awaitingCodesForProduct = {};
 let awaitingCodeToDelete = {};
-
-database.ref('pendingChecks').once('value').then((snapshot) => {
-  pendingChecks = snapshot.val() || {};
-})
 
 const ordersRef = database.ref('orders')
 const productCodesRef = database.ref('codes');
