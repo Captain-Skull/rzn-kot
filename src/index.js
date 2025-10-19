@@ -651,6 +651,8 @@ const clearAllStates = (chatId) => {
 bot.onText('/start', (msg) => {
   const chatId = msg.chat.id;
 
+  clearAllStates(chatId);
+
   try {
     if (!userBalances[chatId]) {
       userBalances[chatId] = 0;
@@ -677,6 +679,10 @@ bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text;
     const userTag = getUserTag(msg);
+
+    if (text.startsWith('/start')) {
+      return;
+    }
 
     const replyToMessage  = msg.reply_to_message;
 
