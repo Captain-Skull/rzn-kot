@@ -680,7 +680,7 @@ bot.on('message', async (msg) => {
     const text = msg.text;
     const userTag = getUserTag(msg);
 
-    if (text.startsWith('/start')) {
+    if (text && text.startsWith('/start')) {
       return;
     }
 
@@ -729,7 +729,7 @@ ${paymentDetails}
 
       return;
     } else if (awaitingReceipt[chatId]) {
-      bot.forwardMessage(DEPOSIT_GROUP_ID, chatId, msg.message_id);
+      await bot.forwardMessage(DEPOSIT_GROUP_ID, chatId, msg.message_id);
       pendingChecks[chatId] = {
         amount: awaitingReceipt[chatId].amount,
         userTag: awaitingReceipt[chatId].userTag,
@@ -737,7 +737,7 @@ ${paymentDetails}
       }
 
       database.ref('pendingChecks').set(pendingChecks);
-      bot.sendMessage(chatId, 'Чек получен и отправлен администратору на проверку. Ожидайте подтверждения.', {
+      await bot.sendMessage(chatId, 'Чек получен и отправлен администратору на проверку. Ожидайте подтверждения.', {
         reply_markup: {
           inline_keyboard: [
             [{text: '🔙 В главное меню', callback_data: 'main-message'}]
@@ -758,7 +758,7 @@ ${paymentDetails}
           ]
         ]
       );
-  
+
       awaitingReceipt[chatId] = false;
 
       return;
