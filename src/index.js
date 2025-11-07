@@ -16,7 +16,7 @@ const bot = new TelegramApi(token, {polling: true});
 
 const firebaseConfig = {
   credential: admin.credential.cert(serviceAccount),
-  databaseURL: "https://rzn-kot-default-rtdb.firebaseio.com"
+  databaseURL: "https://rzn-kot-bot-default-rtdb.firebaseio.com"
 };
 
 admin.initializeApp(firebaseConfig);
