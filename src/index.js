@@ -1,10 +1,6 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import express from 'express';
-const app = express();
-app.use(express.json());
-
 import TelegramApi from 'node-telegram-bot-api';
 import admin from 'firebase-admin';
 
@@ -13,6 +9,22 @@ const require = createRequire(import.meta.url);
 const serviceAccount = require('../secrets/serviceAccount.json');
 const token = process.env.token;
 const bot = new TelegramApi(token, {polling: true});
+
+bot.on('polling_error', (error => {
+  console.error('Polling error: ', error.code, error.message);
+}))
+
+bot.on('error', (error) => {
+  console.error('Bot error: ', error.code, error.message);
+})
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught exception: ', error);
+})
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled rejection at: ', promise, 'reason: ', reason);
+})
 
 const firebaseConfig = {
   credential: admin.credential.cert(serviceAccount),
@@ -31,15 +43,56 @@ const IMAGES = {
   welcome: 'https://ibb.co/DPvxbX4x'
 }
 
+let isReady = false;
 let admins = {};
-database.ref('admins').once('value').then((snapshot) => {
-  admins = snapshot.val() || {};
-  // Если список администраторов пуст, добавляем первого админа
-  if (!Object.keys(admins).length) {
-    admins[ADMIN_CHAT_ID.toString()] = true;
-    database.ref('admins').set(admins);
+let paymentDetails = '';
+let productsCodes = [];
+let productsSignin = [];
+let productsPrime = [];
+let userBalances = {};
+let pendingChecks = {};
+
+async function initialize() {
+  try {
+    console.log('🔄 Загрузка данных из Firebase...');
+    
+    const [
+      balancesSnap, paymentSnap, codesSnap, 
+      signinSnap, primeSnap, adminsSnap, pendingSnap
+    ] = await Promise.all([
+      database.ref('userBalances').once('value'),
+      database.ref('paymentDetails').once('value'),
+      database.ref('productsCodes').once('value'),
+      database.ref('productsSignin').once('value'),
+      database.ref('productsPrime').once('value'),
+      database.ref('admins').once('value'),
+      database.ref('pendingChecks').once('value')
+    ]);
+
+    userBalances = balancesSnap.val() || {};
+    paymentDetails = paymentSnap.val() || '';
+    productsCodes = codesSnap.val() || [];
+    productsSignin = signinSnap.val() || [];
+    productsPrime = primeSnap.val() || [];
+    admins = adminsSnap.val() || {};
+    pendingChecks = pendingSnap.val() || {};
+
+    if (!Object.keys(admins).length && ADMIN_CHAT_ID) {
+      admins[ADMIN_CHAT_ID.toString()] = true;
+      await database.ref('admins').set(admins);
+    }
+
+    isReady = true;
+    console.log('✅ Бот готов!');
+    console.log(`📊 Балансов: ${Object.keys(userBalances).length}`);
+    
+  } catch (error) {
+    console.error('❌ Ошибка инициализации:', error);
+    setTimeout(initialize, 5000);
   }
-});
+}
+
+initialize();
 
 function isAdmin(chatId) {
   const id = chatId.toString();
@@ -75,37 +128,6 @@ function sendMessageToAllAdmins(message, inlineKeyboard = null) {
     bot.sendMessage(adminId, message, options)
   });
 }
-
-let paymentDetails;
-
-await database.ref('paymentDetails').once('value').then((snapshot) => {
-  paymentDetails = snapshot.val() || '';
-})
-
-let productsCodes = {};
-await database.ref('productsCodes').once('value').then((snapshot) => {
-  productsCodes = snapshot.val() || [];
-})
-
-let productsSignin = [];
-await database.ref('productsSignin').once('value').then((snapshot) => {
-  productsSignin = snapshot.val() || [];
-})
-
-let productsPrime = {};
-await database.ref('productsPrime').once('value').then((snapshot) => {
-  productsPrime = snapshot.val() || [];
-})
-
-let userBalances = {};
-await database.ref('userBalances').once('value').then((snapshot) => {
-  userBalances = snapshot.val() || [];
-})
-
-let pendingChecks = {};
-database.ref('pendingChecks').once('value').then((snapshot) => {
-  pendingChecks = snapshot.val() || {};
-})
 
 const userCarts = {};
 
@@ -261,7 +283,7 @@ const generateShopKeyboard = async (cart, type) => {
 
 const generateCartText = (cart, type)  => {
   if (type === 'prime') {
-    return `<b>➤ Выберите длительность Прайм+`
+    return `<b>➤ Выберите длительность Прайм+</b>`
   }
   if (!cart) {
     return `<b>➤ Выберите UC для покупки (можно несколько) 
@@ -286,7 +308,7 @@ const generateCartText = (cart, type)  => {
 async function sendNewCartMessage(chatId, caption, keyboard) {
   try {
     // Пытаемся отправить с фото
-    const sentMessage = await bot.sendPhoto(chatId, IMAGES.pack, {
+    const sentMessage = await bot.sendPhoto(chatId, IMAGES.welcome, {
       caption: caption,
       parse_mode: 'HTML',
       reply_markup: keyboard
@@ -648,22 +670,32 @@ const clearAllStates = (chatId) => {
   delete userCarts[chatId];
 };
 
-bot.onText('/start', (msg) => {
+bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
+
+  if (!isReady) {
+    await bot.sendMessage(chatId, '⏳ Бот запускается, подождите 5-10 секунд и попробуйте снова...');
+    return;
+  }
 
   clearAllStates(chatId);
 
   try {
-    if (!userBalances[chatId]) {
-      userBalances[chatId] = 0;
+    if (userBalances[chatId] === undefined) {
+      const snapshot = await database.ref(`userBalances/${chatId}`).once('value');
+      const dbBalance = snapshot.val();
       
-      database.ref(`userBalances/${chatId}`).set(userBalances[chatId])
-      .catch((error) => {
-          console.error(`Error adding user to database: ${error}`);
-        });
+      if (dbBalance !== null) {
+        userBalances[chatId] = dbBalance;
+        console.log(`🔄 Восстановлен баланс для ${chatId}: ${dbBalance}₽`);
+      } else {
+        userBalances[chatId] = 0;
+        await database.ref(`userBalances/${chatId}`).set(0);
+        console.log(`🆕 Новый пользователь: ${chatId}`);
+      }
     }
     
-    sendMainMessage(chatId, msg.chat.first_name, msg.chat.last_name)
+    await sendMainMessage(chatId, msg.chat.first_name, msg.chat.last_name);
   } catch (error) {
       if (error.code === 'EFATAL' && error.response?.statusCode === 403) {
         console.log('Бот был заблокирован пользователем');
@@ -675,6 +707,11 @@ bot.onText('/start', (msg) => {
 });
 
 bot.on('message', async (msg) => {
+  if (!isReady) {
+    await bot.sendMessage(chatId, '⏳ Бот запускается, подождите 5-10 секунд и попробуйте снова...');
+    return;
+  }
+
   try {
     const chatId = msg.chat.id;
     const text = msg.text;
@@ -686,13 +723,15 @@ bot.on('message', async (msg) => {
 
     const replyToMessage  = msg.reply_to_message;
 
-    if (isAdmin(chatId) && replyToMessage) {
+    if (isAdmin(chatId) && replyToMessage?.forward_from?.id) {
       const userId = replyToMessage.forward_from.id;
   
       // Пересылаем ответ админу пользователю
       await bot.sendMessage(userId, `Ответ от администратора: ${msg.text}`).then(() => {
         sendMessageToAllAdmins(`Ответ от ${userTag} пользователю с ID ${userId} был отправлен.`)
       });
+    } else {
+      await bot.sendMessage(chatId, 'Не удалось отправить сообщение');
     }
 
     if (awaitingDeposit[chatId]) {
@@ -1171,6 +1210,14 @@ ${itemsText}
 })
 
 bot.on('callback_query', async (query) => {
+  if (!isReady) {
+    await bot.answerCallbackQuery(query.id, {
+      text: '⏳ Бот загружается, подождите...',
+      show_alert: true
+    });
+    return;
+  }
+  
   try {
     const chatId = query.message.chat.id;
     const messageId = query.message.message_id;
@@ -1600,7 +1647,7 @@ bot.on('callback_query', async (query) => {
         // Обновляем баланс пользователя
         userBalances[userId] = (userBalances[userId] || 0) + depositAmount;
   
-        database.ref('userBalances').set(userBalances);
+        database.ref(`userBalances/${userId}`).set(userBalances[userId]);
   
         // Оповещаем администратора и пользователя
         sendDepositRequest(`Пополнение на ${depositAmount}₽ для ${userInfo.userTag} (ID: ${userId}) подтверждено.`)
@@ -1681,6 +1728,8 @@ bot.on('callback_query', async (query) => {
   
 
         userBalances[userId] += Math.round(parseFloat(amount) * 100) / 100;
+        
+        database.ref(`userBalances/${userId}`).set(userBalances[userId]);
 
         sendOrderRequest(`❌ Заказ для пользователя с ID ${userId} был отменен.`)
     
