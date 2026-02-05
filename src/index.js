@@ -19,7 +19,7 @@ bot.on('error', (error) => {
 })
 
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught exception: ', error);
+  console.error('Uncaught exception: ', error); 
 })
 
 process.on('unhandledRejection', (reason, promise) => {
@@ -51,6 +51,7 @@ let productsSignin = [];
 let productsPrime = [];
 let userBalances = {};
 let pendingChecks = {};
+let blockedUsers = {};
 
 async function initialize() {
   try {
@@ -58,7 +59,7 @@ async function initialize() {
     
     const [
       balancesSnap, paymentSnap, codesSnap, 
-      signinSnap, primeSnap, adminsSnap, pendingSnap
+      signinSnap, primeSnap, adminsSnap, pendingSnap, blockedSnap
     ] = await Promise.all([
       database.ref('userBalances').once('value'),
       database.ref('paymentDetails').once('value'),
@@ -66,7 +67,8 @@ async function initialize() {
       database.ref('productsSignin').once('value'),
       database.ref('productsPrime').once('value'),
       database.ref('admins').once('value'),
-      database.ref('pendingChecks').once('value')
+      database.ref('pendingChecks').once('value'),
+      database.ref('blockedUsers').once('value')
     ]);
 
     userBalances = balancesSnap.val() || {};
@@ -76,6 +78,7 @@ async function initialize() {
     productsPrime = primeSnap.val() || [];
     admins = adminsSnap.val() || {};
     pendingChecks = pendingSnap.val() || {};
+    blockedUsers = blockedSnap.val() || {};
 
     if (!Object.keys(admins).length && ADMIN_CHAT_ID) {
       admins[ADMIN_CHAT_ID.toString()] = true;
@@ -146,6 +149,8 @@ let awaitingToAddAdmin = {};
 let awaitingToRemoveAdmin = {};
 let awaitingCodesForProduct = {};
 let awaitingCodeToDelete = {};
+let awaitingBlockUser = {};
+let awaitingUnblockUser = {};
 
 const ordersRef = database.ref('orders')
 const productCodesRef = database.ref('codes');
@@ -153,6 +158,11 @@ const productCodesRef = database.ref('codes');
 const getUserTag = (msg) => {
   const username = msg.from.username ? `@${msg.from.username}` : `${msg.from.first_name || 'Пользователь'}`;
   return username;
+};
+
+const isUserBlocked = (userId) => {
+  if (!blockedUsers) return false;
+  return Boolean(blockedUsers[userId.toString()]);
 };
 
 const currentProducts = (category) => {
@@ -210,7 +220,6 @@ const sendMainMessage = async (chatId, firstName, lastName, messageToEdit = null
 const generateShopKeyboard = async (cart, type) => {
   const prods = currentProducts(type)
 
-  // Создаем хеш-таблицу для быстрого подсчета количества в корзине
   let counts = {};
   if (cart) {
     counts = cart.items.reduce((acc, item) => {
@@ -219,19 +228,15 @@ const generateShopKeyboard = async (cart, type) => {
     }, {});
   }
 
-  // Если тип - codes, получаем количество доступных кодов для каждого товара
   let availableCodes = {};
   if (type === 'codes') {
     try {
       const codesSnapshot = await database.ref('codes').once('value');
       const codesData = codesSnapshot.val() || {};
       
-      // Перебираем все товары (60, 325, 660 и т.д.)
       Object.entries(codesData).forEach(([productLabel, productCodes]) => {
-        // Перебираем все коды для данного товара
         Object.values(productCodes).forEach(codeObj => {
           if (codeObj.used === false && codeObj.code) {
-            // Используем productLabel (60, 325 и т.д.) как ключ
             availableCodes[productLabel] = (availableCodes[productLabel] || 0) + 1;
           }
         });
@@ -241,7 +246,6 @@ const generateShopKeyboard = async (cart, type) => {
     }
   }
 
-  // Генерируем кнопки с актуальным количеством
   const buttons = prods.map(p => {
     const inCart = counts ? counts[p.label] || 0 : 0;
     
@@ -271,7 +275,6 @@ const generateShopKeyboard = async (cart, type) => {
     buttons.push([{ text: '🛒 Купить по входу', callback_data: 'cart_buy-signin' }])
   }
 
-  // Добавляем управляющие кнопки
   if (type === 'signin' || type === 'codes') {
     buttons.push([{ text: '🗑 Очистить корзину', callback_data: `cart_clear_${type}` }])
   }
@@ -307,7 +310,6 @@ const generateCartText = (cart, type)  => {
 
 async function sendNewCartMessage(chatId, caption, keyboard) {
   try {
-    // Пытаемся отправить с фото
     const sentMessage = await bot.sendPhoto(chatId, IMAGES.welcome, {
       caption: caption,
       parse_mode: 'HTML',
@@ -319,7 +321,6 @@ async function sendNewCartMessage(chatId, caption, keyboard) {
   } catch (photoError) {
     console.error('Ошибка отправки фото:', photoError.message);
     
-    // Фолбэк на текстовое сообщение
     const sentMessage = await bot.sendMessage(chatId, caption, {
       parse_mode: 'HTML',
       reply_markup: keyboard
@@ -342,7 +343,7 @@ async function updateCartMessage(chatId, messageId, type) {
         parse_mode: 'HTML',
         reply_markup: keyboard
       });
-      return messageId; // Возвращаем тот же messageId
+      return messageId;
     } catch (error) {
       if (error.response?.body?.description?.includes('message is not modified')){
         return messageId
@@ -350,7 +351,6 @@ async function updateCartMessage(chatId, messageId, type) {
     }
   }
 
-  // Если messageId нет или редактирование не удалось
   return await sendNewCartMessage(chatId, caption, keyboard);
 }
 
@@ -441,14 +441,12 @@ const sendUnusedCodes = async (chatId, productLabel) => {
 
     const unusedCodes = unusedCodesSnapshot.val() || {};
 
-    // Форматируем список неиспользованных кодов
     let unusedCodesMessage = `📋 Текущие неиспользованные коды для ${productLabel} UC:\n`;
 
     Object.values(unusedCodes).forEach((codeData, index) => {
       unusedCodesMessage += `${index + 1}. <code>${codeData.code}</code>\n`;
     });
 
-    // Отправляем сообщение с неиспользованными кодами
     await bot.sendMessage(chatId, unusedCodesMessage, {
       parse_mode: 'HTML'
     });
@@ -466,7 +464,6 @@ const purchaseCodes = async (chatId, messageId, firstName, lastName, username) =
     return;
   }
 
-  // Проверка баланса
   if (userBalances[chatId] < cart.total) {
     await bot.sendMessage(chatId, '❌ Недостаточно средств! Пополните баланс.', {
       reply_markup: {
@@ -476,7 +473,6 @@ const purchaseCodes = async (chatId, messageId, firstName, lastName, username) =
     return;
   }
 
-  // Проверка наличия кодов
   const requiredCodes = cart.items.reduce((acc, item) => {
     acc[item.label] = (acc[item.label] || 0) + 1;
     return acc;
@@ -496,7 +492,6 @@ const purchaseCodes = async (chatId, messageId, firstName, lastName, username) =
     return;
   }
 
-  // Резервирование кодов
   const codesToSend = {};
   for (const label of Object.keys(requiredCodes)) {
     const snapshot = await database.ref(`codes/${label}`)
@@ -508,7 +503,6 @@ const purchaseCodes = async (chatId, messageId, firstName, lastName, username) =
     const codes = snapshot.val();
     codesToSend[label] = Object.keys(codes).map(key => codes[key].code);
 
-    // Пометить коды как использованные
     const updates = {};
     Object.keys(codes).forEach(key => {
       updates[`codes/${label}/${key}/used`] = true;
@@ -516,11 +510,9 @@ const purchaseCodes = async (chatId, messageId, firstName, lastName, username) =
     await database.ref().update(updates);
   }
 
-  // Списание средств
   userBalances[chatId] -= cart.total;
   await database.ref(`userBalances/${chatId}`).set(userBalances[chatId]);
 
-  // Сохранение заказа
   const orderNumber = Date.now().toString(36).toUpperCase() + chatId.toString().slice(-4);
   const orderData = {
     orderId: orderNumber,
@@ -552,10 +544,8 @@ const purchaseCodes = async (chatId, messageId, firstName, lastName, username) =
     codesMessage += `➥ ${label} UC:\n${formattedCodes}\n\n`;
   }
 
-  // Отправка кодов пользователю
   let message = '✅ Ваши коды:\n\n' + codesMessage;
 
-  // Очистка корзины
   delete userCarts[chatId];
   
   await bot.sendMessage(chatId, message, {
@@ -568,8 +558,6 @@ const purchaseCodes = async (chatId, messageId, firstName, lastName, username) =
     }
   });
   await bot.deleteMessage(chatId, messageId);
-
-  // Уведомление админам
 
   const availableUsername = username ? ` / @${username}` : ''
 
@@ -667,6 +655,8 @@ const clearAllStates = (chatId) => {
   delete awaitingToRemoveAdmin[chatId];
   delete awaitingCodesForProduct[chatId];
   delete awaitingCodeToDelete[chatId];
+  delete awaitingBlockUser[chatId];
+  delete awaitingUnblockUser[chatId];
   delete userCarts[chatId];
 };
 
@@ -681,6 +671,11 @@ bot.onText(/\/start/, async (msg) => {
   clearAllStates(chatId);
 
   try {
+    if (isUserBlocked(chatId) && !isAdmin(chatId)) {
+      await bot.sendMessage(chatId, '⛔️ Доступ ограничен.\nЕсли вы не согласны обратитесь к админу @rznkot');
+      return;
+    }
+
     if (userBalances[chatId] === undefined) {
       const snapshot = await database.ref(`userBalances/${chatId}`).once('value');
       const dbBalance = snapshot.val();
@@ -707,15 +702,23 @@ bot.onText(/\/start/, async (msg) => {
 });
 
 bot.on('message', async (msg) => {
+  const chatId = msg.chat.id;
+  
   if (!isReady) {
     await bot.sendMessage(chatId, '⏳ Бот запускается, подождите 5-10 секунд и попробуйте снова...');
     return;
   }
 
   try {
-    const chatId = msg.chat.id;
     const text = msg.text;
     const userTag = getUserTag(msg);
+
+    if (text.startsWith('/start')) return;
+
+    if (isUserBlocked(chatId) && !isAdmin(chatId)) {
+      await bot.sendMessage(chatId, '⛔️ Доступ ограничен.\nЕсли вы не согласны обратитесь к админу @rznkot');
+      return;
+    }
 
     if (text && text.startsWith('/start')) {
       return;
@@ -726,12 +729,18 @@ bot.on('message', async (msg) => {
     if (isAdmin(chatId) && replyToMessage?.forward_from?.id) {
       const userId = replyToMessage.forward_from.id;
   
-      // Пересылаем ответ админу пользователю
-      await bot.sendMessage(userId, `Ответ от администратора: ${msg.text}`).then(() => {
-        sendMessageToAllAdmins(`Ответ от ${userTag} пользователю с ID ${userId} был отправлен.`)
-      });
-    } else {
-      await bot.sendMessage(chatId, 'Не удалось отправить сообщение');
+      try {
+        await bot.sendMessage(userId, `Ответ от администратора: ${msg.text}`).then(() => {
+          sendMessageToAllAdmins(`Ответ от ${userTag} пользователю с ID ${userId} был отправлен.`)
+        });
+      } catch (error) {
+        await bot.sendMessage(chatId, '❌ Не удалось отправить сообщение')
+      }
+
+      return;
+    } else if (isAdmin(chatId) && replyToMessage) {
+      await bot.sendMessage(chatId, '❌ Не удалось отправить сообщение');
+      return;
     }
 
     if (awaitingDeposit[chatId]) {
@@ -794,6 +803,8 @@ ${paymentDetails}
           [
             { text: '✅ Подтвердить', callback_data: `confirm_${chatId}` },
             { text: '❌ Отклонить', callback_data: `reject_${chatId}` }
+          ], [
+            { text: '🚫 Заблокировать', callback_data: `block-user_${chatId}`}
           ]
         ]
       );
@@ -938,7 +949,6 @@ ${itemsText}
         return;
       }
       
-      // Обновляем цену товара
       product.price = newPrice;
       updateProducts(chatId, category)
       delete awaitingToChangeProduct[chatId];
@@ -951,7 +961,6 @@ ${itemsText}
         return;
       }
       if (!admins[newAdminId]) {
-        // Добавляем нового администратора в список
         admins[newAdminId] = true;
         database.ref('admins').set(admins)
           .then(() => {
@@ -994,13 +1003,11 @@ ${itemsText}
       return;
     } else if (awaitingToRemoveAdmin[chatId]) {
       const adminIdToRemove = msg.text;
-            
-      // Проверяем, что этот пользователь действительно является администратором
+
       if (admins[adminIdToRemove]) {
         if (adminIdToRemove === ADMIN_CHAT_ID) {
           bot.sendMessage(chatId, 'Нельзя удалить главного администратора');
         } else {
-          // Удаляем администратора из списка
           delete admins[adminIdToRemove];
           database.ref('admins').set(admins)
             .then(() => {
@@ -1042,6 +1049,79 @@ ${itemsText}
       delete awaitingToRemoveAdmin[chatId];
       
       return;
+    } else if (awaitingBlockUser[chatId]) {
+      const [targetId, ...reasonParts] = text.split(' ');
+      const reason = reasonParts.join(' ').trim();
+
+      if (!targetId || isNaN(Number(targetId))) {
+        await bot.sendMessage(chatId, 'Укажите ID пользователя: `12345 причина`', { parse_mode: 'Markdown' });
+        return;
+      }
+
+      if (isAdmin(targetId)) {
+        await bot.sendMessage(chatId, '❌ Нельзя заблокировать администратора!', {
+          reply_markup: { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'return' }]] }
+        });
+        delete awaitingBlockUser[chatId];
+        return;
+      }
+
+      if (isUserBlocked(targetId)) {
+        await bot.sendMessage(chatId, '⚠️ Этот пользователь уже заблокирован.', {
+          reply_markup: { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'return' }]] }
+        });
+        delete awaitingBlockUser[chatId];
+        return;
+      }
+
+      blockedUsers[targetId] = true;
+      await database.ref(`blockedUsers/${targetId}`).set(true);
+
+      await bot.sendMessage(chatId, `Пользователь ${targetId} заблокирован${reason ? `: ${reason}` : ''}`, {
+        reply_markup: { inline_keyboard: [[{ text: '🔙 В главное меню', callback_data: 'return' }]] }
+      });
+
+      try {
+        await bot.sendMessage(targetId, `⛔️ Ваш доступ к боту ограничен администратором.\nПричина: ${reason ? `${reason}` : 'мошеничество'}\nЕсли вы не согласны обратитесь к админу @rznkot`);
+      } catch (error) {
+        console.log('Не удалось уведомить пользователя о блокировке:', error.message);
+      }
+
+      delete awaitingBlockUser[chatId];
+      return;
+    } else if (awaitingUnblockUser[chatId]) {
+      const targetId = text.trim();
+
+      if (!targetId || isNaN(Number(targetId))) {
+        await bot.sendMessage(chatId, 'Укажите ID пользователя', {
+          reply_markup: {
+            inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'manage-blocks' }]]
+          }
+        })
+        return;
+      }
+
+      if (blockedUsers[targetId]) {
+        delete blockedUsers[targetId];
+        await database.ref(`blockedUsers/${targetId}`).remove();
+
+        await bot.sendMessage(chatId, `Пользователь ${targetId} разблокирован.`, {
+          reply_markup: { inline_keyboard: [[{ text: '🔙 В главное меню', callback_data: 'return' }]] }
+        });
+
+        try {
+          await bot.sendMessage(targetId, '✅ Доступ к боту восстановлен.');
+        } catch (error) {
+          console.log('Не удалось уведомить пользователя о разблокировке:', error.message);
+        }
+      } else {
+        await bot.sendMessage(chatId, `Пользователь ${targetId} не найден в списке блокировок.`, {
+          reply_markup: { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'manage-blocks' }]] }
+        });
+      }
+
+      delete awaitingUnblockUser[chatId];
+      return;
     } else if (awaitingToCreateMailing[chatId]) {
       const broadcastMessage = msg.text;
       
@@ -1054,13 +1134,11 @@ ${itemsText}
           return bot.sendMessage(chatId, 'Нет пользователей для рассылки.');
         }
 
-        // Разослать сообщение каждому пользователю
         const userIds = Object.keys(userBalances);
         for (const userId of userIds) {
           try {
             await bot.sendMessage(userId, broadcastMessage);
           } catch (error) {
-            // Если ошибка связана с превышением лимита запросов, обрабатываем её
             if (error.response && error.response.statusCode === 429) {
               const retryAfter = error.response.body.parameters.retry_after || 1;
               console.log(`Превышен лимит запросов, повтор через ${retryAfter} секунд...`);
@@ -1068,7 +1146,6 @@ ${itemsText}
             }
           }
       
-          // Добавляем задержку между сообщениями, чтобы не превысить лимит Telegram
           await new Promise(resolve => setTimeout(resolve, 100));
         }
 
@@ -1086,7 +1163,7 @@ ${itemsText}
       delete awaitingToCreateMailing[chatId];
       return;
     } else if (awaitingUserToChangeBalance[chatId]) {
-      const userId = msg.text; // Получаем ID пользователя
+      const userId = msg.text;
       
       bot.sendMessage(chatId, `Баланс пользователя ${userBalances[userId]}. Введите новую сумму для баланса:`);
   
@@ -1095,7 +1172,7 @@ ${itemsText}
       
       return;
     } else if (awaitingToChangeBalance[chatId]) {
-      const newBalance = parseFloat(msg.text); // Получаем новую сумму
+      const newBalance = parseFloat(msg.text);
       const userId = awaitingToChangeBalance[chatId].userId
   
       if (isNaN(newBalance)) {
@@ -1104,7 +1181,7 @@ ${itemsText}
       }
   
       if (userBalances[userId] || userBalances[userId] === 0) {
-        userBalances[userId] = newBalance; // Обновляем баланс пользователя
+        userBalances[userId] = newBalance;
         database.ref('userBalances').set(userBalances)
           .then(() => {
             bot.sendMessage(chatId, `Баланс пользователя с ID ${userId} был изменен на ${newBalance}₽.`);
@@ -1219,12 +1296,17 @@ bot.on('callback_query', async (query) => {
   }
   
   try {
-    const chatId = query.message.chat.id;
+    const chatId = query.from.id;
     const messageId = query.message.message_id;
     const data = query.data;
 
+    if (isUserBlocked(chatId) && !isAdmin(chatId)) {
+      await bot.sendMessage(chatId, '⛔️ Доступ ограничен.\nЕсли вы не согласны обратитесь к админу @rznkot');
+      return;
+    }
+
     if (userBalances[chatId] === undefined) {
-      userBalances[chatId] = 0;  // Устанавливаем начальный баланс для новых пользователей
+      userBalances[chatId] = 0;
     }
 
     if (data === 'return') {
@@ -1341,12 +1423,17 @@ bot.on('callback_query', async (query) => {
               {text: '👥 Админы', callback_data: 'manage-admins'}
             ],
             [
+              {text: '🚫 Блокировки', callback_data: 'manage-blocks'}
+            ],
+            [
               {text: '🔙 На главную', callback_data: 'return'}
             ]
           ]
         }
       })
     } else if (data === 'manage-products') {
+      if (!isAdmin(chatId)) return;
+
       const categoryKeyboard = {
         inline_keyboard: [
           [
@@ -1370,6 +1457,8 @@ bot.on('callback_query', async (query) => {
 
       return
     } else if (data.startsWith('manage-category_')) {
+      if (!isAdmin(chatId)) return;
+
       const category = data.split('_')[1];
 
       const productsManagementKeyboard = (prods) => {
@@ -1412,6 +1501,8 @@ bot.on('callback_query', async (query) => {
   
       return;
     } else if (data.startsWith('add-product_')) {
+      if (!isAdmin(chatId)) return;
+
       const category = data.split('_')[1]
       awaitingNewProductLabel[chatId] = category;
 
@@ -1423,11 +1514,13 @@ bot.on('callback_query', async (query) => {
   
       return;
     } else if (data.startsWith('delete-product-list_')) {
+      if (!isAdmin(chatId)) return;
+
       const category = data.split('_')[1]
 
       const productButtons = currentProducts(category).map(product => ({
-        text: `${product.label} - ${product.price}₽`,  // Отображаем метку и имя товара
-        callback_data: `delete-product_${category}_${product.label}`  // Уникальный callback_data для каждого товара
+        text: `${product.label} - ${product.price}₽`,
+        callback_data: `delete-product_${category}_${product.label}`
       }));
 
       const deleteProductsKeyboard = [];
@@ -1448,15 +1541,12 @@ bot.on('callback_query', async (query) => {
   
       return;
     } else if (data.startsWith('edit-product_')) {
+      if (!isAdmin(chatId)) return;
+
       const [, category, label] = data.split('_');
   
       const prods = currentProducts(category);
 
-      if (!isAdmin(query.from.id)) {
-        return
-      }
-  
-      // Проверка наличия товара
       const product = prods.find(p => p.label === label);
       if (!product) {
           bot.sendMessage(chatId, `Товар с меткой ${label} не найден.`);
@@ -1469,17 +1559,14 @@ bot.on('callback_query', async (query) => {
   
       return;
     } else if (data.startsWith('delete-product_')) {
+      if (!isAdmin(chatId)) return;
+
       const [, category, labelToDelete] = data.split('_');
 
-      const prods = currentProducts(category)
-  
-      if (!isAdmin(query.from.id)) {
-        return
-      }
+      const prods = currentProducts(category);
 
       console.log(prods)
   
-      // Проверка наличия товара
       const product = prods.find(p => p.label === labelToDelete);
       if (!product) {
           bot.sendMessage(chatId, `Товар с меткой ${labelToDelete} не найден.`);
@@ -1488,9 +1575,7 @@ bot.on('callback_query', async (query) => {
   
       const index = prods.findIndex(product => product.label === labelToDelete);
   
-    // Проверяем, найден ли товар
       if (index !== -1) {
-        // Удаляем товар из массива
         prods.splice(index, 1);
         updateProducts(chatId, category, prods)
       } else {
@@ -1499,6 +1584,8 @@ bot.on('callback_query', async (query) => {
   
       return;
     } else if (data === 'manage-admins') {
+      if (!isAdmin(chatId)) return;
+
       await bot.editMessageCaption('👥 Управление администраторами:', {
         chat_id: chatId,
         message_id: messageId,
@@ -1514,7 +1601,103 @@ bot.on('callback_query', async (query) => {
       });
   
       return;
+    } else if (data === 'manage-blocks') {
+      if (!isAdmin(chatId)) return;
+
+      await bot.editMessageCaption('🚫 Управление блокировками:', {
+        chat_id: chatId,
+        message_id: messageId,
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🚫 Заблокировать', callback_data: 'block-user' },
+              { text: '✅ Разблокировать', callback_data: 'unblock-user' }
+            ],
+            [
+              { text: '📋 Список заблокированных', callback_data: 'list-blocked' }
+            ],
+            [
+              { text: '🔙 Назад', callback_data: 'admin-panel' }
+            ]
+          ]
+        }
+      });
+
+      return;
+    } else if (data === 'block-user') {
+      if (!isAdmin(chatId)) return;
+
+      awaitingBlockUser[chatId] = true;
+
+      await bot.editMessageCaption('Введите ID пользователя и причину (по желанию):\nНапример: `12345 спам`', {
+        chat_id: chatId,
+        message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'manage-blocks' }]] }
+      });
+
+      return;
+    } else if (data === 'unblock-user') {
+      if (!isAdmin(chatId)) return;
+
+      awaitingUnblockUser[chatId] = true;
+
+      await bot.editMessageCaption('Введите ID пользователя для разблокировки:', {
+        chat_id: chatId,
+        message_id: messageId,
+        reply_markup: { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'manage-blocks' }]] }
+      });
+
+      return;
+    } else if (data === 'list-blocked') {
+      if (!isAdmin(chatId)) return;
+
+      if (!Object.keys(blockedUsers).length) {
+        await bot.sendMessage(chatId, 'Список блокировок пуст.', {
+          reply_markup: { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'manage-blocks' }]] }
+        });
+        return;
+      }
+
+      const listText = Object.keys(blockedUsers)
+        .map(id => `• <code>${id}</code>`)
+        .join('\n');
+
+      await bot.deleteMessage(chatId, messageId);
+
+      await bot.sendMessage(chatId, `Заблокированы:\n${listText}`, {
+        reply_markup: { inline_keyboard: [[{ text: '🔙 Назад', callback_data: 'back-from-blocked-list' }]] },
+        parse_mode: "HTML"
+      });
+
+      return;
+    } else if (data === 'back-from-blocked-list') {
+      if (!isAdmin(chatId)) return;
+
+      await bot.deleteMessage(chatId, messageId);
+
+      await bot.sendPhoto(chatId, IMAGES.welcome, {
+        caption: '🚫 Управление блокировками:',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🚫 Заблокировать', callback_data: 'block-user' },
+              { text: '✅ Разблокировать', callback_data: 'unblock-user' }
+            ],
+            [
+              { text: '📋 Список заблокированных', callback_data: 'list-blocked' }
+            ],
+            [
+              { text: '🔙 Назад', callback_data: 'admin-panel' }
+            ]
+          ]
+        }
+      })
+
+      return;
     } else if (data === 'add-admin') {
+      if (!isAdmin(chatId)) return;
+
       bot.editMessageCaption('Введите ID пользователя, которого хотите сделать администратором', {
         chat_id: chatId,
         message_id: messageId,
@@ -1529,6 +1712,8 @@ bot.on('callback_query', async (query) => {
 
       return;
     } else if (data === 'remove-admin') {
+      if (!isAdmin(chatId)) return;
+
       bot.editMessageCaption('Введите ID администратора, которого хотите удалить', {
         chat_id: chatId,
         message_id: messageId,
@@ -1561,6 +1746,8 @@ bot.on('callback_query', async (query) => {
       
       return;
     } else if (data === 'manage-balances') {
+      if (!isAdmin(chatId)) return;
+
       awaitingUserToChangeBalance[chatId] = true;
 
       await bot.editMessageCaption('Введите ID пользователя, чей баланс вы хотите изменить:', {
@@ -1571,6 +1758,8 @@ bot.on('callback_query', async (query) => {
   
       return;
     } else if (data === 'manage-codes') {
+      if (!isAdmin(chatId)) return;
+
       clearAllStates(chatId);
       await bot.editMessageCaption('Выберите, что вы хотите сделать с кодами', {
         chat_id: chatId,
@@ -1586,21 +1775,23 @@ bot.on('callback_query', async (query) => {
 
       return;
     } else if (data === 'add-codes') {
+      if (!isAdmin(chatId)) return;
       manageCodes(chatId, messageId, 'add');
   
       return;
     } else if (data === 'remove-codes') {
+      if (!isAdmin(chatId)) return;
       manageCodes(chatId, messageId, 'remove');
   
       return;
     } else if (data.startsWith('add-codes_')) {
+      if (!isAdmin(chatId)) return;
+
       const productLabel = data.split('_')[1];
       awaitingCodesForProduct[chatId] = productLabel;
     
-      // Получаем текущие неиспользованные коды для этого продукта
       sendUnusedCodes(chatId, productLabel);
     
-      // Запрашиваем новые коды
       await bot.editMessageCaption(`Отправьте коды для ${productLabel} UC (по одному в строке):`, {
         chat_id: chatId,
         message_id: messageId,
@@ -1609,6 +1800,8 @@ bot.on('callback_query', async (query) => {
 
       return;
     } else if (data.startsWith('remove-codes_')) {
+      if (!isAdmin(chatId)) return;
+
       const productLabel = data.split('_')[1];
       awaitingCodeToDelete[chatId] = productLabel;
 
@@ -1620,6 +1813,8 @@ bot.on('callback_query', async (query) => {
         reply_markup: { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'manage-codes' }]] }
       })
     } else if (data === 'edit-payment-details') {
+      if (!isAdmin(chatId)) return;
+
       await bot.editMessageCaption('Пришлите новые реквизиты:', {
         chat_id: chatId,
         message_id: messageId,
@@ -1634,57 +1829,70 @@ bot.on('callback_query', async (query) => {
 
     return;
     } else if (data.startsWith('confirm_')) {
+      if (!isAdmin(chatId)) return;
+
       const userId = data.split('_')[1];
       const userInfo = pendingChecks[userId];
-  
-      if (!isAdmin(query.from.id)) {
-        return
-      }
   
       if (userInfo) {
         const depositAmount = userInfo.amount;
   
-        // Обновляем баланс пользователя
         userBalances[userId] = (userBalances[userId] || 0) + depositAmount;
   
         database.ref(`userBalances/${userId}`).set(userBalances[userId]);
   
-        // Оповещаем администратора и пользователя
         sendDepositRequest(`Пополнение на ${depositAmount}₽ для ${userInfo.userTag} (ID: ${userId}) подтверждено.`)
         bot.sendMessage(userId, `Ваш баланс был пополнен на ${depositAmount}₽. Текущий баланс: ${userBalances[userId]}₽.`);
   
-        // Очищаем информацию о запросе
         delete pendingChecks[userId];
         database.ref('pendingChecks').set(pendingChecks);
       }
       
       return;
     } else if (data.startsWith('reject_')) {
+      if (!isAdmin(chatId)) return;
+
       const userId = data.split('_')[1];
       const userInfo = pendingChecks[userId];
   
-      if (!isAdmin(query.from.id)) {
-        return
-      }
-  
       if (userInfo) {
-        // Оповещаем администратора и пользователя об отмене
         sendDepositRequest(`Пополнение на ${userInfo.amount}₽ для ${userInfo.userTag} (ID: ${userId}) отменено.`)
         bot.sendMessage(userId, `Ваше пополнение на сумму ${userInfo.amount}₽ было отклонено. Пожалуйста, попробуйте снова.`);
   
-        // Очищаем информацию о запросе
         delete pendingChecks[userId];
-        database.ref('pendingChecks').set(pendingChecks);
+        database.ref(`pendingChecks/${userId}`).remove();
       }
       
       return;
-    } else if (data.startsWith('order-completed_')) {
-      const [, userId, orderId] = query.data.split('_'); // Получаем ID покупателя из callback_data
-      const message = query.message;
-  
-      if (!isAdmin(query.from.id)) {
-        return
+    } else if (data.startsWith('block-user_')) {
+      console.log(chatId);
+      if (!isAdmin(chatId)) return;
+
+      const userId = data.split('_')[1];
+
+      blockedUsers[userId] = true;
+
+      await database.ref(`blockedUsers/${userId}`).set(true);
+
+      if (pendingChecks[userId]) {
+        delete pendingChecks[userId];
+        await database.ref(`pendingChecks/${userId}`).remove();
       }
+
+      sendDepositRequest(`🚫 Пользователь (ID: ${userId}) заблокирован.`)
+
+      try {
+        await bot.sendMessage(userId, '⛔️ Ваш доступ к боту ограничен.\nПричина: мошеничество.\n\Если вы не согласны обратитесь к админу @rznkot');
+      } catch (error) {
+        console.log('Не удалось уведомить пользователя:', error.message);
+      }
+
+      return;
+    } else if (data.startsWith('order-completed_')) {
+      if (!isAdmin(chatId)) return;
+
+      const [, userId, orderId] = query.data.split('_');
+      const message = query.message;
   
       try {
         await ordersRef.child(userId).child(orderId).update({
@@ -1712,12 +1920,10 @@ bot.on('callback_query', async (query) => {
   
       return;
     } else if (data.startsWith('order-declined_')) {
-      const [, userId, orderId, amount] = query.data.split('_'); // Получаем ID покупателя из callback_data
-      const message = query.message;
+      if (!isAdmin(chatId)) return;
 
-      if (!isAdmin(query.from.id)) {
-        return
-      }
+      const [, userId, orderId, amount] = query.data.split('_');
+      const message = query.message;
   
       try {
         await ordersRef.child(userId).child(orderId).update({
@@ -1733,7 +1939,6 @@ bot.on('callback_query', async (query) => {
 
         sendOrderRequest(`❌ Заказ для пользователя с ID ${userId} был отменен.`)
     
-        // Сообщаем покупателю, что его заказ выполнен
         bot.sendMessage(userId, '⛔️Ваш заказ отклонён, причину узнайте у администратора', {reply_markup: {
           inline_keyboard: [
             [{text: '🔙 В главное меню', callback_data: 'return'}]
