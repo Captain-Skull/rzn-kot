@@ -28,4 +28,10 @@ export async function handleNavigation(ctx: MyContext, data: string): Promise<vo
       await updateCartMessage(ctx, category, messageId);
     }
   }
+
+  if (data === 'main-message') {
+    resetState(ctx);
+    await sendMainMessage(ctx);
+    return;
+  }
 }

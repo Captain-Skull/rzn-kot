@@ -1,3 +1,4 @@
+import { SUPPORT_USERNAME } from '../config/constants.js';
 import type { Product } from '../types/models.js';
 
 export interface AppCache {
@@ -7,6 +8,7 @@ export interface AppCache {
   productsSignin: Product[];
   productsPrime: Product[];
   blockedUsers: Record<string, boolean>;
+  adminUsername: string;
 }
 
 export const cache: AppCache = {
@@ -16,4 +18,5 @@ export const cache: AppCache = {
   productsSignin: [],
   productsPrime: [],
   blockedUsers: {},
+  adminUsername: SUPPORT_USERNAME,
 };

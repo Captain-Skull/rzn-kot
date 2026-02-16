@@ -8,8 +8,9 @@ import { blockUser, unblockUser, isBlocked } from '../../database/repo/blockRepo
 import { sendBroadcast } from '../../services/broadcastService.js';
 import { bot } from '../../bot.js';
 import { resetState } from '../../utils/helpers.js';
-import { returnKeyboard, adminBackKeyboard } from '../../keyboards/common.js';
+import { returnKeyboard, adminBackKeyboard, mainMessageKeyboard } from '../../keyboards/common.js';
 import { SUPPORT_USERNAME } from '../../config/constants.js';
+import { setAdminUsername } from '../../database/repo/adminUsernameRepo.js';
 
 export async function handleAdminInput(ctx: MyContext): Promise<void> {
   const chatId = ctx.chat!.id;
@@ -155,6 +156,17 @@ export async function handleAdminInput(ctx: MyContext): Promise<void> {
           console.log(error);
         }
       }
+      resetState(ctx);
+      break;
+    }
+
+    case UserState.AWAITING_NEW_ADMIN_USERNAME: {
+      console.log(text);
+      if (!text) return;
+      setAdminUsername(text);
+      await ctx.reply(`Ссылка в разделе Тех.Поддержка изменена на https://t.me/${text}`, {
+        reply_markup: mainMessageKeyboard(),
+      });
       resetState(ctx);
       break;
     }

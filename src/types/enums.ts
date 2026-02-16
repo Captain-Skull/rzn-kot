@@ -20,6 +20,8 @@ export enum UserState {
 
   AWAITING_BLOCK_USER = 'awaiting_block_user',
   AWAITING_UNBLOCK_USER = 'awaiting_unblock_user',
+
+  AWAITING_NEW_ADMIN_USERNAME = 'awaiting_new_admin_username',
 }
 
 export enum ProductCategory {

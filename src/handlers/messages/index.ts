@@ -21,6 +21,7 @@ const messageRoutes: Record<string, (ctx: MyContext) => Promise<void>> = {
   [UserState.AWAITING_CODE_TO_DELETE]: handleAdminInput,
   [UserState.AWAITING_BLOCK_USER]: handleAdminInput,
   [UserState.AWAITING_UNBLOCK_USER]: handleAdminInput,
+  [UserState.AWAITING_NEW_ADMIN_USERNAME]: handleAdminInput,
 };
 
 export function registerMessages(bot: Bot<MyContext>): void {

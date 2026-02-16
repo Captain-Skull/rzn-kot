@@ -19,7 +19,7 @@ import {
   adminsManagementKeyboard,
   blocksManagementKeyboard,
 } from '../../keyboards/admin.js';
-import { cancelKeyboard } from '../../keyboards/common.js';
+import { adminBackKeyboard, cancelKeyboard } from '../../keyboards/common.js';
 
 export async function handleAdmin(ctx: MyContext, data: string): Promise<void> {
   const chatId = ctx.chat!.id;
@@ -233,6 +233,14 @@ export async function handleAdmin(ctx: MyContext, data: string): Promise<void> {
     await ctx.api.sendPhoto(chatId, IMAGES.welcome, {
       caption: '🚫 Управление блокировками:',
       reply_markup: blocksManagementKeyboard(),
+    });
+  }
+
+  if (data === 'change-admin-username') {
+    ctx.session.state = { type: UserState.AWAITING_NEW_ADMIN_USERNAME };
+    await ctx.editMessageCaption({
+      caption: 'Введите новое имя для администратора (БЕЗ @)',
+      reply_markup: adminBackKeyboard(),
     });
   }
 }

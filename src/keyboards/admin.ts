@@ -11,6 +11,7 @@ export function adminPanelKeyboard(): InlineKeyboard {
     .text('👥 Админы', 'manage-admins')
     .row()
     .text('🚫 Блокировки', 'manage-blocks')
+    .text('✏️ Имя админа', 'change-admin-username')
     .row()
     .text('🔙 На главную', 'return');
 }

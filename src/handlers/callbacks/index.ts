@@ -34,6 +34,7 @@ export function registerCallbacks(bot: Bot<MyContext>): void {
           'unblock-user',
           'list-blocked',
           'back-from-blocked-list',
+          'change-admin-username',
         ].includes(data) ||
         data.startsWith('manage-category_') ||
         data.startsWith('edit-product_') ||
