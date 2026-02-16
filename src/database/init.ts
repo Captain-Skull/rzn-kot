@@ -4,7 +4,7 @@ import { ADMIN_CHAT_ID } from '../config/env.js';
 import { SUPPORT_USERNAME } from '../config/constants.js';
 
 export async function initializeCache(): Promise<void> {
-  const [adminsSnap, usersSnap, codesSnap, signinSnap, primeSnap, blockedSnap, adminUsernameSnap] = await Promise.all([
+  const [adminsSnap, usersSnap, codesSnap, signinSnap, primeSnap, blockedSnap, adminUsernameSnap, userBalancesSnap] = await Promise.all([
     database.ref('admins').once('value'),
     database.ref('users').once('value'),
     database.ref('productsCodes').once('value'),
@@ -12,7 +12,16 @@ export async function initializeCache(): Promise<void> {
     database.ref('productsPrime').once('value'),
     database.ref('blockedUsers').once('value'),
     database.ref('adminUsername').once('value'),
+    database.ref('userBalances').once('value'),
   ]);
+
+  if (userBalancesSnap.val()) {
+    Object.keys(userBalancesSnap.val()).forEach(user => {
+      database.ref('users').child(user).set(true);
+      cache.users[user] = true;
+      database.ref('userBalances').child(user).remove();
+    });
+  }
 
   cache.admins = adminsSnap.val() || {};
   cache.users = usersSnap.val() || {};
