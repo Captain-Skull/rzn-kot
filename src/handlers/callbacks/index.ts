@@ -1,72 +1,57 @@
-import { Bot } from "grammy";
-import type { MyContext } from "../../types/context.js";
-import { handleNavigation } from "./navigation.js";
-import { handleShop } from "./shop.js";
-import { handleProfile } from "./profile.js";
-import { handleDeposit } from "./deposit.js";
-import { handleAdmin } from "./admin.js";
-import { handleModeration } from "./moderation.js";
+import { Bot } from 'grammy';
+import type { MyContext } from '../../types/context.js';
+import { handleNavigation } from './navigation.js';
+import { handleShop } from './shop.js';
+import { handleAdmin } from './admin.js';
+import { handleModeration } from './moderation.js';
 
 export function registerCallbacks(bot: Bot<MyContext>): void {
-  bot.on("callback_query:data", async (ctx) => {
+  bot.on('callback_query:data', async ctx => {
     const data = ctx.callbackQuery.data;
 
     try {
-      if (
-        data === "return" ||
-        data === "open-shop" ||
-        data.startsWith("open-catalog_")
-      ) {
+      if (['return', 'main-message'].includes(data) || data.startsWith('open-catalog_')) {
         return await handleNavigation(ctx, data);
       }
 
-      if (data.startsWith("add-to-cart_") || data.startsWith("cart_")) {
+      if (data.startsWith('cart_') || data.startsWith('buy-prime_')) {
         return await handleShop(ctx, data);
-      }
-
-      if (data === "my-profile" || data === "my-orders") {
-        return await handleProfile(ctx, data);
-      }
-
-      if (data === "deposit" || data.startsWith("deposit-with-")) {
-        return await handleDeposit(ctx, data);
       }
 
       if (
         [
-          "admin-panel",
-          "manage-category",
-          "manage-balances",
-          "manage-admins",
-          "manage-codes",
-          "send-broadcast",
-          "edit-payment-details",
-          "add-admin",
-          "remove-admin",
+          'admin-panel',
+          'manage-products',
+          'manage-admins',
+          'manage-codes',
+          'add-codes-list',
+          'remove-codes-list',
+          'send-broadcast',
+          'add-admin',
+          'remove-admin',
+          'manage-blocks',
+          'block-user',
+          'unblock-user',
+          'list-blocked',
+          'back-from-blocked-list',
         ].includes(data) ||
-        data.startsWith("manage-products_") ||
-        data.startsWith("edit-product_") ||
-        data.startsWith("delete-product") ||
-        data.startsWith("add-product_") ||
-        data.startsWith("add-codes_") ||
-        data.startsWith("select-payment-method_")
+        data.startsWith('manage-category_') ||
+        data.startsWith('edit-product_') ||
+        data.startsWith('delete-product') ||
+        data.startsWith('add-product_') ||
+        data.startsWith('add-codes_') ||
+        data.startsWith('remove-codes_')
       ) {
         return await handleAdmin(ctx, data);
       }
 
-      // Модерация
-      if (
-        data.startsWith("confirm_") ||
-        data.startsWith("reject_") ||
-        data.startsWith("order-completed_") ||
-        data.startsWith("order-declined_")
-      ) {
+      if (data.startsWith('order-completed_') || data.startsWith('order-declined_')) {
         return await handleModeration(ctx, data);
       }
 
       await ctx.answerCallbackQuery();
     } catch (error) {
-      console.error("Callback error:", error);
+      console.error('Callback error:', error);
     }
   });
 }

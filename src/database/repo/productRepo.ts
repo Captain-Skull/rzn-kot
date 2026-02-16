@@ -1,26 +1,20 @@
-import { database } from "../firebase.js";
-import { cache } from "../cache.js";
-import type { Product } from "../../types/models.js";
-import { ProductCategory } from "../../types/enums.js";
+import { database } from '../firebase.js';
+import { cache } from '../cache.js';
+import type { Product } from '../../types/models.js';
+import { ProductCategory } from '../../types/enums.js';
 
-type ProductCacheKey =
-  | "productsCodes"
-  | "productsId"
-  | "productsPopularity"
-  | "productsSubs";
+type ProductCacheKey = 'productsCodes' | 'productsSignin' | 'productsPrime';
 
 const categoryToCacheKey: Record<ProductCategory, ProductCacheKey> = {
-  [ProductCategory.CODES]: "productsCodes",
-  [ProductCategory.ID]: "productsId",
-  [ProductCategory.POPULARITY]: "productsPopularity",
-  [ProductCategory.SUBS]: "productsSubs",
+  [ProductCategory.CODES]: 'productsCodes',
+  [ProductCategory.SIGNIN]: 'productsSignin',
+  [ProductCategory.PRIME]: 'productsPrime',
 };
 
 const categoryToFirebaseKey: Record<ProductCategory, string> = {
-  [ProductCategory.CODES]: "productsCodes",
-  [ProductCategory.ID]: "productsId",
-  [ProductCategory.POPULARITY]: "productsPopularity",
-  [ProductCategory.SUBS]: "productsSubs",
+  [ProductCategory.CODES]: 'productsCodes',
+  [ProductCategory.SIGNIN]: 'productsSignin',
+  [ProductCategory.PRIME]: 'productsPrime',
 };
 
 export function getProducts(category: ProductCategory): Product[] {
@@ -28,10 +22,7 @@ export function getProducts(category: ProductCategory): Product[] {
   return cache[key] as Product[];
 }
 
-export async function setProducts(
-  category: ProductCategory,
-  products: Product[]
-): Promise<void> {
+export async function setProducts(category: ProductCategory, products: Product[]): Promise<void> {
   const cacheKey = categoryToCacheKey[category];
   const firebaseKey = categoryToFirebaseKey[category];
 
@@ -39,22 +30,16 @@ export async function setProducts(
   await database.ref(firebaseKey).set(products);
 }
 
-export async function addProduct(
-  category: ProductCategory,
-  product: Product
-): Promise<void> {
+export async function addProduct(category: ProductCategory, product: Product): Promise<void> {
   const products = getProducts(category);
   products.push(product);
   products.sort((a, b) => parseInt(a.label, 10) - parseInt(b.label, 10));
   await setProducts(category, products);
 }
 
-export async function deleteProduct(
-  category: ProductCategory,
-  label: string
-): Promise<boolean> {
+export async function deleteProduct(category: ProductCategory, label: string): Promise<boolean> {
   const products = getProducts(category);
-  const index = products.findIndex((p) => p.label === label);
+  const index = products.findIndex(p => p.label === label);
 
   if (index === -1) return false;
 
@@ -63,13 +48,9 @@ export async function deleteProduct(
   return true;
 }
 
-export async function updateProductPrice(
-  category: ProductCategory,
-  label: string,
-  newPrice: number
-): Promise<boolean> {
+export async function updateProductPrice(category: ProductCategory, label: string, newPrice: number): Promise<boolean> {
   const products = getProducts(category);
-  const product = products.find((p) => p.label === label);
+  const product = products.find(p => p.label === label);
 
   if (!product) return false;
 

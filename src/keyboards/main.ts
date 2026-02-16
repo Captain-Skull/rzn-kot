@@ -3,15 +3,15 @@ import { isAdmin } from "../database/repo/adminRepo.js";
 
 export function mainKeyboard(chatId: number): InlineKeyboard {
   const keyboard = new InlineKeyboard()
-    .text("🛒 Каталог", "open-shop")
+    .text("💰 Купить UC", "open-catalog_uc")
     .row()
-    .text("📦 Мои заказы", "my-orders")
-    .text("👤 Мой профиль", "my-profile")
+    .text("💵 Прайм+", "open-catalog_prime")
     .row()
-    .url("🔗 Наш канал", "https://t.me/POSTAVKABOJLHOGO")
-    .url("⚙️ Тех.поддержка", "https://t.me/BoJlHoy")
+    .url("📘 Отзывы", "https://t.me/otzivrznkot")
     .row()
-    .url("📖 Отзывы", "https://t.me/Bolnojot");
+    .url("📖 Инструкция", "https://t.me/instructionrznkot")
+    .row()
+    .url("⚙️ Тех.поддержка", "https://t.me/rznkot");
 
   if (isAdmin(chatId)) {
     keyboard.row().text("👑 Админ-панель", "admin-panel");

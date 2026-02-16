@@ -1,114 +1,88 @@
-import { InlineKeyboard } from "grammy";
-import { ProductCategory } from "../types/enums.js";
-import { getProducts } from "../database/repo/productRepo.js";
+import { InlineKeyboard } from 'grammy';
+import { ProductCategory } from '../types/enums.js';
+import { getProducts } from '../database/repo/productRepo.js';
 
 export function adminPanelKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("🛠 Товары", "manage-category")
-    .text("💳 Реквизиты", "edit-payment-details")
+    .text('🛠 Товары', 'manage-products')
+    .text('📢 Рассылка', 'send-broadcast')
     .row()
-    .text("📊 Балансы", "manage-balances")
-    .text("📢 Рассылка", "send-broadcast")
+    .text('➕ Коды UC', 'manage-codes')
+    .text('👥 Админы', 'manage-admins')
     .row()
-    .text("➕ Коды", "manage-codes")
-    .text("👥 Админы", "manage-admins")
+    .text('🚫 Блокировки', 'manage-blocks')
     .row()
-    .text("🔙 На главную", "return");
+    .text('🔙 На главную', 'return');
 }
 
-export function categoryManagementKeyboard(): InlineKeyboard {
+export function categorySelectKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("Коды", "manage-products_codes")
+    .text('💰 UC по входу', 'manage-category_signin')
+    .text('🔒 UC по кодам', 'manage-category_codes')
     .row()
-    .text("По ID", "manage-products_id")
+    .text('💵 Прайм+', 'manage-category_prime')
     .row()
-    .text("Популярность", "manage-products_popularity")
-    .row()
-    .text("Подписки", "manage-products_subs")
-    .row()
-    .text("🔙 Назад", "admin-panel");
+    .text('🔙 Назад', 'admin-panel');
 }
 
-export function productsManagementKeyboard(
-  category: string
-): InlineKeyboard {
+export function productsManagementKeyboard(category: string): InlineKeyboard {
   const products = getProducts(category as ProductCategory);
-  const keyboard = new InlineKeyboard();
-
+  const kb = new InlineKeyboard();
   for (const p of products) {
-    keyboard
-      .text(`${p.label} - ${p.price}$`, `edit-product_${category}_${p.label}`)
-      .row();
+    kb.text(`${p.label} - ${p.price}₽`, `edit-product_${category}_${p.label}`).row();
   }
-
-  keyboard
-    .text("➕ Добавить", `add-product_${category}`)
-    .text("➖ Удалить", `delete-product-list_${category}`)
+  kb.text('➕ Добавить', `add-product_${category}`)
+    .text('➖ Удалить', `delete-product-list_${category}`)
     .row()
-    .text("🔙 Назад", "admin-panel");
-
-  return keyboard;
+    .text('🔙 Назад', 'manage-products');
+  return kb;
 }
 
-export function deleteProductListKeyboard(
-  category: string
-): InlineKeyboard {
+export function deleteProductListKeyboard(category: string): InlineKeyboard {
   const products = getProducts(category as ProductCategory);
-  const keyboard = new InlineKeyboard();
-
+  const kb = new InlineKeyboard();
   for (const p of products) {
-    keyboard
-      .text(
-        `${p.label} - ${p.price}$`,
-        `delete-product_${category}_${p.label}`
-      )
-      .row();
+    kb.text(`${p.label} - ${p.price}₽`, `delete-product_${category}_${p.label}`).row();
   }
-
-  keyboard.text("❌ Отмена", "admin-panel");
-  return keyboard;
+  kb.text('❌ Отмена', 'admin-panel');
+  return kb;
 }
 
-export function codesProductsKeyboard(): InlineKeyboard {
+export function codesManageKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text('➕ Добавить', 'add-codes-list')
+    .row()
+    .text('➖ Удалить', 'remove-codes-list')
+    .row()
+    .text('🔙 Назад', 'admin-panel');
+}
+
+export function codesProductListKeyboard(action: 'add' | 'remove'): InlineKeyboard {
   const products = getProducts(ProductCategory.CODES);
-  const keyboard = new InlineKeyboard();
-
+  const kb = new InlineKeyboard();
   for (const p of products) {
-    keyboard.text(`${p.label}`, `add-codes_${p.label}`).row();
+    kb.text(`${p.label}`, `${action}-codes_${p.label}`).row();
   }
-
-  keyboard.text("🔙 Назад", "admin-panel");
-  return keyboard;
-}
-
-export function paymentMethodsEditKeyboard(): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("ByBit", "select-payment-method_ByBit")
-    .row()
-    .text("CryptoBot", "select-payment-method_CryptoBot")
-    .row()
-    .text("Карта", "select-payment-method_card")
-    .row()
-    .text("❌ Отмена", "admin-panel");
+  kb.text('🔙 Назад', 'admin-panel');
+  return kb;
 }
 
 export function adminsManagementKeyboard(): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("➕ Добавить", "add-admin")
-    .text("➖ Удалить", "remove-admin")
-    .row()
-    .text("🔙 Назад", "admin-panel");
+  return new InlineKeyboard().text('➕ Добавить', 'add-admin').text('➖ Удалить', 'remove-admin').row().text('🔙 Назад', 'admin-panel');
 }
 
-export function orderModerationKeyboard(
-  userId: number,
-  orderId: string,
-  total: number
-): InlineKeyboard {
+export function blocksManagementKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("✅ Заказ выполнен", `order-completed_${userId}_${orderId}`)
-    .text(
-      "❌ Отменить заказ",
-      `order-declined_${userId}_${orderId}_${total}`
-    );
+    .text('🚫 Заблокировать', 'block-user')
+    .text('✅ Разблокировать', 'unblock-user')
+    .row()
+    .text('📋 Список', 'list-blocked')
+    .row()
+    .text('🔙 Назад', 'admin-panel');
+}
+
+export function orderModerationKeyboard(userId: number, orderId: string, total: number): InlineKeyboard {
+  return new InlineKeyboard()
+    .text('✅ Выполнен', `order-completed_${userId}_${orderId}`)
+    .text('❌ Отменить', `order-declined_${userId}_${orderId}_${total}`);
 }

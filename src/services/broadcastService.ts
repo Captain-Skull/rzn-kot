@@ -1,16 +1,13 @@
-import { GrammyError } from "grammy";
-import { bot } from "../bot.js";
-import { getAllUserIds } from "../database/repo/userRepo.js";
-import { returnKeyboard } from "../keyboards/common.js";
+import { GrammyError } from 'grammy';
+import { bot } from '../bot.js';
+import { getAllUserIds } from '../database/repo/userRepo.js';
+import { mainMessageKeyboard } from '../keyboards/common.js';
 
-export async function sendBroadcast(
-  chatId: number,
-  message: string
-): Promise<void> {
+export async function sendBroadcast(chatId: number, message: string): Promise<void> {
   const userIds = getAllUserIds();
 
   if (userIds.length === 0) {
-    await bot.api.sendMessage(chatId, "Нет пользователей для рассылки.");
+    await bot.api.sendMessage(chatId, 'Нет пользователей для рассылки.');
     return;
   }
 
@@ -23,21 +20,17 @@ export async function sendBroadcast(
     } catch (error) {
       if (error instanceof GrammyError && error.error_code === 429) {
         const retryAfter = error.parameters?.retry_after || 1;
-        await new Promise((r) => setTimeout(r, retryAfter * 1000));
-        
+        await new Promise(r => setTimeout(r, retryAfter * 1000));
         try {
           await bot.api.sendMessage(userId, message);
           successCount++;
-        } catch {}
+        } catch (error) {
+          console.log(error);
+        }
       }
     }
-
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise(r => setTimeout(r, 100));
   }
 
-  await bot.api.sendMessage(
-    chatId,
-    `Сообщение успешно отправлено ${successCount} пользователям.`,
-    { reply_markup: returnKeyboard() }
-  );
+  await bot.api.sendMessage(chatId, `Сообщение отправлено ${successCount} пользователям.`, { reply_markup: mainMessageKeyboard() });
 }

@@ -1,35 +1,29 @@
-import { Context, type SessionFlavor } from "grammy";
-import type { Product } from "./models.js";
-import type { ProductCategory, UserState } from "./enums.js";
+import { Context, type SessionFlavor } from 'grammy';
+import type { Product } from './models.js';
+import type { ProductCategory, UserState } from './enums.js';
 
 export interface Cart {
-    items: Product[];
-    total: number;
+  items: Product[];
+  total: number;
 }
 
 interface StateData {
-    type: UserState;
+  type: UserState;
 
-    productType?: ProductCategory;
+  pubgId?: string;
 
-    depositAmount?: number;
+  product?: Product;
 
-    userTag?: string;
+  productLabel?: string;
 
-    paymentMethod?: string;
+  newLabel?: string;
 
-    product?: Product;
-
-    productLabel?: string;
-
-    newLabel?: string;
-
-    userIdForBalance?: string;
+  category?: ProductCategory;
 }
 
 export interface SessionData {
-    state: StateData;
-    cart: Cart;
+  state: StateData;
+  cart: Cart;
 }
 
 export type MyContext = Context & SessionFlavor<SessionData>;

@@ -1,34 +1,17 @@
-import type { MyContext } from "../../types/context.js";
-import { UserState } from "../../types/enums.js";
-import {
-  getBalance,
-  setBalance,
-  userExists,
-} from "../../database/repo/userRepo.js";
-import {
-  updateProductPrice,
-  addProduct,
-  getProducts,
-} from "../../database/repo/productRepo.js";
-import {
-  addAdmin,
-  removeAdmin,
-} from "../../database/repo/adminRepo.js";
-import {
-  updatePaymentDetails,
-} from "../../database/repo/paymentRepo.js";
-import { addCodes } from "../../database/repo/codeRepo.js";
-import { sendBroadcast } from "../../services/broadcastService.js";
-import { bot } from "../../bot.js";
-import { resetState } from "../../utils/helpers.js";
-import {
-  returnKeyboard,
-  cancelAdminKeyboard,
-} from "../../keyboards/common.js";
+import type { MyContext } from '../../types/context.js';
+import { UserState, ProductCategory } from '../../types/enums.js';
+import { userExists } from '../../database/repo/userRepo.js';
+import { updateProductPrice, addProduct } from '../../database/repo/productRepo.js';
+import { addAdmin, removeAdmin, isAdmin as checkAdmin } from '../../database/repo/adminRepo.js';
+import { addCodes, deleteCode } from '../../database/repo/codeRepo.js';
+import { blockUser, unblockUser, isBlocked } from '../../database/repo/blockRepo.js';
+import { sendBroadcast } from '../../services/broadcastService.js';
+import { bot } from '../../bot.js';
+import { resetState } from '../../utils/helpers.js';
+import { returnKeyboard, adminBackKeyboard } from '../../keyboards/common.js';
+import { SUPPORT_USERNAME } from '../../config/constants.js';
 
-export async function handleAdminInput(
-  ctx: MyContext
-): Promise<void> {
+export async function handleAdminInput(ctx: MyContext): Promise<void> {
   const chatId = ctx.chat!.id;
   const text = ctx.msg?.text;
   if (!text) return;
@@ -39,187 +22,139 @@ export async function handleAdminInput(
     case UserState.AWAITING_PRODUCT_PRICE: {
       const newPrice = parseFloat(text);
       if (isNaN(newPrice)) {
-        await ctx.reply("Пожалуйста, введите корректную цену.");
+        await ctx.reply('Введите корректную цену.');
         return;
       }
-
-      const success = await updateProductPrice(
-        state.productType!,
-        state.product!.label,
-        newPrice
-      );
-
-      if (success) {
-        await ctx.reply(
-          `Цена товара ${state.product!.label} изменена на ${newPrice}$.`,
-          { reply_markup: returnKeyboard() }
-        );
-      }
-
+      await updateProductPrice(state.category as ProductCategory, state.product!.label, newPrice);
+      await ctx.reply(`Цена ${state.product!.label} изменена на ${newPrice}₽.`, { reply_markup: returnKeyboard() });
       resetState(ctx);
       break;
     }
 
     case UserState.AWAITING_NEW_PRODUCT_LABEL: {
-      ctx.session.state = {
-        type: UserState.AWAITING_NEW_PRODUCT_PRICE,
-        productType: state.productType!,
-        newLabel: text,
-      };
-
-      await ctx.reply(`Введите цену для нового товара (${text}):`);
+      ctx.session.state = { type: UserState.AWAITING_NEW_PRODUCT_PRICE, category: state.category as ProductCategory, newLabel: text };
+      await ctx.reply(`Введите цену для товара (${text}):`);
       break;
     }
 
     case UserState.AWAITING_NEW_PRODUCT_PRICE: {
       const newPrice = parseFloat(text);
       if (isNaN(newPrice)) {
-        await ctx.reply("Пожалуйста, введите корректную цену");
+        await ctx.reply('Введите корректную цену');
         return;
       }
-
-      await addProduct(state.productType!, {
-        label: state.newLabel!,
-        price: newPrice,
-      });
-
-      await ctx.reply(
-        `Новый товар ${state.newLabel} добавлен по цене ${newPrice}$`,
-        { reply_markup: returnKeyboard() }
-      );
-
-      resetState(ctx);
-      break;
-    }
-
-    case UserState.AWAITING_CREDENTIALS: {
-      await updatePaymentDetails(state.paymentMethod!, text);
-
-      await ctx.reply(
-        `✅ Реквизиты для ${state.paymentMethod} успешно обновлены!`,
-        { reply_markup: cancelAdminKeyboard }
-      );
-
-      resetState(ctx);
-      break;
-    }
-
-    case UserState.AWAITING_USER_FOR_BALANCE: {
-      const userId = text;
-      const balance = getBalance(userId);
-
-      ctx.session.state = {
-        type: UserState.AWAITING_NEW_BALANCE,
-        userIdForBalance: userId,
-      };
-
-      await ctx.reply(
-        `Баланс пользователя ${balance}$. Введите новую сумму для баланса:`
-      );
-      break;
-    }
-
-    case UserState.AWAITING_NEW_BALANCE: {
-      const newBalance = parseFloat(text);
-      const userId = state.userIdForBalance!;
-
-      if (isNaN(newBalance)) {
-        await ctx.reply("Пожалуйста, введите корректную сумму.");
-        return;
-      }
-
-      if (userExists(userId)) {
-        await setBalance(userId, newBalance);
-        await ctx.reply(
-          `Баланс пользователя с ID ${userId} изменен на ${newBalance}$.`,
-          { reply_markup: returnKeyboard() }
-        );
-      } else {
-        await ctx.reply("Пользователя с таким ID нет.");
-      }
-
+      await addProduct(state.category as ProductCategory, { label: state.newLabel!, price: newPrice });
+      await ctx.reply(`Товар ${state.newLabel} добавлен за ${newPrice}₽`, { reply_markup: returnKeyboard() });
       resetState(ctx);
       break;
     }
 
     case UserState.AWAITING_BROADCAST: {
       if (!text) {
-        await ctx.reply("Сообщение не может быть пустым.");
+        await ctx.reply('Сообщение не может быть пустым.');
         return;
       }
-
       await sendBroadcast(chatId, text);
       resetState(ctx);
       break;
     }
 
     case UserState.AWAITING_ADD_ADMIN: {
-      const newAdminId = text;
-
-      if (!userExists(newAdminId)) {
-        await ctx.reply(
-          `Пользователь с ID "${newAdminId}" не существует. Возможно, он не зарегистрирован в боте.`,
-          { reply_markup: returnKeyboard() }
-        );
+      if (!userExists(text)) {
+        await ctx.reply(`Пользователь "${text}" не найден.`, { reply_markup: returnKeyboard() });
         return;
       }
-
-      await addAdmin(newAdminId);
-
-      await ctx.reply(
-        `Пользователь с ID ${newAdminId} добавлен как администратор.`,
-        { reply_markup: returnKeyboard() }
-      );
-
-      await bot.api.sendMessage(
-        newAdminId,
-        "Вы были добавлены в качестве администратора.",
-        { reply_markup: returnKeyboard() }
-      );
-
+      if (checkAdmin(text)) {
+        await ctx.reply(`${text} уже администратор.`, { reply_markup: returnKeyboard() });
+      } else {
+        await addAdmin(text);
+        await ctx.reply(`${text} назначен администратором.`, { reply_markup: returnKeyboard() });
+        try {
+          await bot.api.sendMessage(text, 'Вы назначены администратором.', { reply_markup: returnKeyboard() });
+        } catch (error) {
+          console.log(error);
+        }
+      }
       resetState(ctx);
       break;
     }
 
     case UserState.AWAITING_REMOVE_ADMIN: {
-      const adminId = text;
-      const removed = await removeAdmin(adminId);
-
+      const removed = await removeAdmin(text);
+      await ctx.reply(removed ? `${text} удален из администраторов.` : 'Нельзя удалить главного администратора.', {
+        reply_markup: returnKeyboard(),
+      });
       if (removed) {
-        await ctx.reply(
-          `Пользователь с ID ${adminId} удален из списка администраторов.`,
-          { reply_markup: returnKeyboard() }
-        );
-
-        await bot.api.sendMessage(
-          adminId,
-          "Вы были удалены из списка администраторов.",
-          { reply_markup: returnKeyboard() }
-        );
-      } else {
-        await ctx.reply("Нельзя удалить главного администратора.", {
-          reply_markup: returnKeyboard(),
-        });
+        try {
+          await bot.api.sendMessage(text, 'Вы удалены из администраторов.', { reply_markup: returnKeyboard() });
+        } catch (error) {
+          console.log(error);
+        }
       }
-
       resetState(ctx);
       break;
     }
 
     case UserState.AWAITING_CODES: {
       const codes = text
-        .split("\n")
-        .map((c) => c.trim())
-        .filter((c) => c.length > 0);
+        .split('\n')
+        .map(c => c.trim())
+        .filter(c => c.length > 0);
+      await addCodes(state.productLabel!, codes);
+      await ctx.reply(`✅ Добавлено ${codes.length} кодов для ${state.productLabel} UC`, { reply_markup: adminBackKeyboard() });
+      resetState(ctx);
+      break;
+    }
 
-      const productLabel = state.productLabel!;
-      await addCodes(productLabel, codes);
+    case UserState.AWAITING_CODE_TO_DELETE: {
+      const deleted = await deleteCode(state.productLabel!, text);
+      await ctx.reply(deleted ? `✅ Код ${text} удален` : '⚠️ Код не найден', { reply_markup: adminBackKeyboard() });
+      resetState(ctx);
+      break;
+    }
 
-      await ctx.reply(
-        `✅ Добавлено ${codes.length} кодов для ${productLabel} UC`,
-        { reply_markup: returnKeyboard() }
-      );
+    case UserState.AWAITING_BLOCK_USER: {
+      const [targetId, ...reasonParts] = text.split(' ');
+      const reason = reasonParts.join(' ').trim();
+      if (!targetId || isNaN(Number(targetId))) {
+        await ctx.reply('Укажите ID: `12345 причина`', { parse_mode: 'Markdown' });
+        return;
+      }
+      if (checkAdmin(targetId)) {
+        await ctx.reply('❌ Нельзя заблокировать админа!', { reply_markup: returnKeyboard() });
+        resetState(ctx);
+        return;
+      }
+      if (isBlocked(targetId)) {
+        await ctx.reply('⚠️ Уже заблокирован.', { reply_markup: returnKeyboard() });
+        resetState(ctx);
+        return;
+      }
+      await blockUser(targetId);
+      await ctx.reply(`${targetId} заблокирован${reason ? `: ${reason}` : ''}`, { reply_markup: returnKeyboard() });
+      try {
+        await bot.api.sendMessage(targetId, `⛔️ Доступ ограничен.\nПричина: ${reason || 'мошенничество'}\n${SUPPORT_USERNAME}`);
+      } catch (error) {
+        console.log(error);
+      }
+      resetState(ctx);
+      break;
+    }
 
+    case UserState.AWAITING_UNBLOCK_USER: {
+      if (!text || isNaN(Number(text))) {
+        await ctx.reply('Укажите ID пользователя');
+        return;
+      }
+      const unblocked = await unblockUser(text);
+      await ctx.reply(unblocked ? `${text} разблокирован.` : `${text} не в списке блокировок.`, { reply_markup: returnKeyboard() });
+      if (unblocked) {
+        try {
+          await bot.api.sendMessage(text, '✅ Доступ к боту восстановлен.');
+        } catch (error) {
+          console.log(error);
+        }
+      }
       resetState(ctx);
       break;
     }

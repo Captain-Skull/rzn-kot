@@ -1,13 +1,13 @@
-import admin from "firebase-admin";
-import type { Database } from "firebase-admin/database";
-import { createRequire } from "module";
+import admin from 'firebase-admin';
+import type { Database } from 'firebase-admin/database';
+import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const serviceAccount = require("../../secrets/serviceAccountKey.json");
+const serviceAccount = require('../../secrets/serviceAccountKey.json');
 
 const firebaseConfig = {
   credential: admin.credential.cert(serviceAccount),
-  databaseURL: "https://demoshopbot-default-rtdb.firebaseio.com/",
+  databaseURL: 'https://project-for-freelance-default-rtdb.firebaseio.com/',
 };
 
 admin.initializeApp(firebaseConfig);

@@ -1,48 +1,28 @@
-import { database } from "./firebase.js";
-import { cache } from "./cache.js";
-import { ADMIN_CHAT_ID } from "../config/env.js";
+import { database } from './firebase.js';
+import { cache } from './cache.js';
+import { ADMIN_CHAT_ID } from '../config/env.js';
 
 export async function initializeCache(): Promise<void> {
-  const [
-    adminsSnap,
-    balancesSnap,
-    codesSnap,
-    idSnap,
-    popularitySnap,
-    subsSnap,
-    paymentsSnap,
-    pendingSnap,
-    cryptoSnap,
-  ] = await Promise.all([
-    database.ref("admins").once("value"),
-    database.ref("userBalances").once("value"),
-    database.ref("productsCodes").once("value"),
-    database.ref("productsId").once("value"),
-    database.ref("productsPopularity").once("value"),
-    database.ref("productsSubs").once("value"),
-    database.ref("paymentDetails").once("value"),
-    database.ref("pendingChecks").once("value"),
-    database.ref("cryptobotDeposits").once("value"),
+  const [adminsSnap, usersSnap, codesSnap, signinSnap, primeSnap, blockedSnap] = await Promise.all([
+    database.ref('admins').once('value'),
+    database.ref('users').once('value'),
+    database.ref('productsCodes').once('value'),
+    database.ref('productsSignin').once('value'),
+    database.ref('productsPrime').once('value'),
+    database.ref('blockedUsers').once('value'),
   ]);
 
   cache.admins = adminsSnap.val() || {};
-  cache.userBalances = balancesSnap.val() || {};
+  cache.users = usersSnap.val() || {};
   cache.productsCodes = codesSnap.val() || [];
-  cache.productsId = idSnap.val() || [];
-  cache.productsPopularity = popularitySnap.val() || [];
-  cache.productsSubs = subsSnap.val() || [];
-  cache.paymentDetails = paymentsSnap.val() || {};
-  cache.pendingChecks = pendingSnap.val() || {};
-  cache.cryptobotDeposits = cryptoSnap.val() || {};
+  cache.productsSignin = signinSnap.val() || [];
+  cache.productsPrime = primeSnap.val() || [];
+  cache.blockedUsers = blockedSnap.val() || {};
 
-  if (!Object.keys(cache.admins).length) {
+  if (!Object.keys(cache.admins).length && ADMIN_CHAT_ID) {
     cache.admins[ADMIN_CHAT_ID] = true;
-    await database.ref("admins").set(cache.admins);
+    await database.ref('admins').set(cache.admins);
   }
 
-  console.log(
-    `✅ Cache loaded: ${Object.keys(cache.userBalances).length} users, ` +
-      `${Object.keys(cache.admins).length} admins, ` +
-      `${cache.productsCodes.length} products`
-  );
+  console.log(`✅ Загружено: ${Object.keys(cache.users).length} пользователей, ` + `${Object.keys(cache.admins).length} админов`);
 }

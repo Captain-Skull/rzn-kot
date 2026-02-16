@@ -1,54 +1,57 @@
-import type { MyContext } from "../../types/context.js";
-import { ProductCategory } from "../../types/enums.js";
-import { getProducts } from "../../database/repo/productRepo.js";
-import {
-  addToCart,
-  clearCart,
-  updateCartMessage,
-} from "../../services/cartService.js";
-import {
-  initPurchaseWithId,
-  purchaseCodes,
-} from "../../services/purchaseService.js";
-import type { Product } from "../../types/models.js";
+import type { MyContext } from '../../types/context.js';
+import { ProductCategory } from '../../types/enums.js';
+import { getProducts } from '../../database/repo/productRepo.js';
+import { addToCart, clearCart, removeFromCart, updateCartMessage } from '../../services/cartService.js';
+import { purchaseCodes, initPurchaseSignin, initPurchasePrime } from '../../services/purchaseService.js';
 
-export async function handleShop(
-  ctx: MyContext,
-  data: string
-): Promise<void> {
+export async function handleShop(ctx: MyContext, data: string): Promise<void> {
   const messageId = ctx.msg!.message_id;
 
-  if (data.startsWith("add-to-cart_")) {
-    const [, label, price, type] = data.split("_");
-    const category = type as ProductCategory;
-    const products = getProducts(category);
-    const product = products.find((p: Product) => p.label === label);
+  if (data.startsWith('cart_')) {
+    const parts = data.split('_');
+    const action = parts[1];
 
-    if (!product) {
-      await ctx.answerCallbackQuery({ text: "Товар не найден" });
-      return;
+    switch (action) {
+      case 'clear': {
+        const type = parts[2] as ProductCategory;
+        clearCart(ctx);
+        await updateCartMessage(ctx, type, messageId);
+        break;
+      }
+      case 'buy-signin':
+        await initPurchaseSignin(ctx);
+        break;
+      case 'buy-codes':
+        await purchaseCodes(ctx);
+        break;
+      case 'add': {
+        const type = parts[2] as ProductCategory;
+        const label = parts[3];
+        const products = getProducts(type);
+        const product = products.find(p => p.label === label);
+        if (product) {
+          addToCart(ctx, product);
+          await updateCartMessage(ctx, type, messageId);
+        }
+        break;
+      }
+      case 'remove': {
+        const type = parts[2] as ProductCategory;
+        const label = parts[3];
+        const products = getProducts(type);
+        const product = products.find(p => p.label === label);
+        if (product) {
+          removeFromCart(ctx, product);
+          await updateCartMessage(ctx, type, messageId);
+        }
+        break;
+      }
     }
-
-    addToCart(ctx, product);
-    await updateCartMessage(ctx, category, messageId);
     return;
   }
 
-  if (data.startsWith("cart_")) {
-    const [, action, type] = data.split("_");
-    const category = (type || "codes") as ProductCategory;
-
-    switch (action) {
-      case "clear":
-        clearCart(ctx);
-        await updateCartMessage(ctx, category, messageId);
-        break;
-      case "buy-with-id":
-        await initPurchaseWithId(ctx, category);
-        break;
-      case "buy-codes":
-        await purchaseCodes(ctx);
-        break;
-    }
+  if (data.startsWith('buy-prime_')) {
+    const [, label] = data.split('_');
+    await initPurchasePrime(ctx, label);
   }
 }
