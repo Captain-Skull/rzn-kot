@@ -1,0 +1,15 @@
+import { Bot } from "grammy";
+import type { MyContext } from "../../types/context.js";
+import { createUser } from "../../database/repo/userRepo.js";
+import { sendMainMessage } from "../../services/mainMessage.js";
+import { resetState } from "../../utils/helpers.js";
+
+export function registerStart(bot: Bot<MyContext>): void {
+  bot.command("start", async (ctx) => {
+    const chatId = ctx.chat.id;
+
+    resetState(ctx);
+    await createUser(chatId);
+    await sendMainMessage(ctx);
+  });
+}
