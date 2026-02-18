@@ -1,15 +1,15 @@
 import { InlineKeyboard } from 'grammy';
 import type { MyContext } from '../types/context.js';
 import { UserState, ProductCategory } from '../types/enums.js';
-import { getAvailableCodes, markCodesAsUsed, countAvailableCodes } from '../database/repo/codeRepo.js';
+import { countAvailableCodes } from '../database/repo/codeRepo.js';
 import { getProducts } from '../database/repo/productRepo.js';
+import { savePendingPayment } from '../database/repo/pendingPaymentRepo.js';
 import { saveOrder } from '../database/repo/orderRepo.js';
 import { sendOrderNotification } from './notificationService.js';
-import { createPayment, type PaymentItem } from './paymentService.js';
+import { createPayment } from './paymentService.js';
 import { clearCart, addToCart } from './cartService.js';
 import { resetState, getUserTag, generateOrderNumber } from '../utils/helpers.js';
-import { formatCodesMessage } from '../utils/formatters.js';
-import { mainMessageKeyboard } from '../keyboards/common.js';
+import { mainMessageKeyboard, returnKeyboard } from '../keyboards/common.js';
 import { orderModerationKeyboard } from '../keyboards/admin.js';
 
 export async function purchaseCodes(ctx: MyContext): Promise<void> {
@@ -18,7 +18,6 @@ export async function purchaseCodes(ctx: MyContext): Promise<void> {
   const cart = ctx.session.cart;
   const firstName = ctx.from?.first_name || '';
   const lastName = ctx.from?.last_name || '';
-  const username = ctx.from?.username;
 
   if (!cart || cart.items.length === 0) {
     await ctx.api.sendMessage(chatId, '❌ Корзина пуста!');
@@ -38,56 +37,47 @@ export async function purchaseCodes(ctx: MyContext): Promise<void> {
     }
   }
 
-  const paymentItems: PaymentItem[] = Object.entries(requiredCodes).map(([label, count]) => {
-    const product = getProducts(ProductCategory.CODES).find(p => p.label === label);
-    return {
-      name: `UC ${label}`,
-      quantity: count,
-      price: product?.price || 0,
-    };
-  });
+  const itemsCount = cart.items.reduce<Record<string, number>>((acc, item) => {
+    acc[item.label] = (acc[item.label] || 0) + 1;
+    return acc;
+  }, {});
 
-  await ctx.api.sendMessage(chatId, '⏳ Обработка оплаты...');
+  const description = Object.entries(itemsCount)
+    .map(([label, count]) => `UC ${label} x${count}`)
+    .join(', ');
 
-  const payment = await createPayment(chatId, cart.total, 'Покупка UC кодов', paymentItems);
+  const payment = await createPayment(cart.total, `UC коды: ${description}`);
 
-  if (!payment.success) {
-    await ctx.api.sendMessage(chatId, '❌ Ошибка оплаты. Попробуйте позже.', {
+  if (!payment.success || !payment.paymentUrl || !payment.orderId) {
+    await ctx.api.sendMessage(chatId, `❌ Ошибка создания платежа: ${payment.error || 'попробуйте позже'}`, {
       reply_markup: mainMessageKeyboard(),
     });
     return;
   }
 
-  const codesToSend: Record<string, string[]> = {};
-  for (const [label, count] of Object.entries(requiredCodes)) {
-    const codes = await getAvailableCodes(label, count);
-    const codeKeys = Object.keys(codes);
-    codesToSend[label] = codeKeys.map(key => codes[key].code);
-    await markCodesAsUsed(label, codeKeys);
-  }
+  const botOrderId = generateOrderNumber(chatId);
 
-  const orderNumber = generateOrderNumber(chatId);
-  await saveOrder(chatId, orderNumber, {
-    orderId: orderNumber,
+  const paymentMessage = await ctx.api.sendMessage(
+    chatId,
+    `💳 Заказ #${botOrderId}\n` +
+      `Сумма: ${cart.total}₽\n\n` +
+      `Нажмите кнопку ниже для оплаты.\n` +
+      `После оплаты коды придут автоматически.`,
+    {
+      reply_markup: new InlineKeyboard().url('Оплатить', payment.paymentUrl).icon('5427365243548361496').row().text('❌ Отмена', 'return'),
+    },
+  );
+
+  await savePendingPayment({
+    paycoreOrderId: payment.orderId,
+    botOrderId,
     userId: chatId,
     type: 'codes',
-    codes: codesToSend,
-    items: cart.items,
+    items: [...cart.items],
     total: cart.total,
-    status: 'confirmed',
-    paymentId: payment.paymentId,
-    timestamp: Date.now(),
-    userInfo: { username: `${firstName} ${lastName}`.trim() },
-  });
-
-  const codesMessage = formatCodesMessage(codesToSend);
-
-  await ctx.api.sendMessage(chatId, `✅ Оплата прошла! Ваши коды:\n\n${codesMessage}`, {
-    parse_mode: 'HTML',
-    reply_markup: new InlineKeyboard()
-      .url('📖 Инструкция', 'https://t.me/instructionrznkot/3')
-      .row()
-      .text('🏚 Главное меню', 'main-message'),
+    username: `${firstName} ${lastName}`.trim(),
+    messageId: paymentMessage.message_id,
+    createdAt: Date.now(),
   });
 
   if (messageId) {
@@ -97,15 +87,6 @@ export async function purchaseCodes(ctx: MyContext): Promise<void> {
       console.log(error);
     }
   }
-
-  const availableUsername = username ? ` / @${username}` : '';
-  await sendOrderNotification(
-    `✅ Заказ кодами #${orderNumber} (оплачен)\n` +
-      `Пользователь: ${firstName} ${lastName} (ID: ${chatId}${availableUsername})\n` +
-      `Коды:\n\n${codesMessage}` +
-      `Сумма: ${cart.total}₽\n` +
-      `Payment: ${payment.paymentId}`,
-  );
 
   resetState(ctx);
 }
@@ -125,8 +106,9 @@ export async function initPurchaseSignin(ctx: MyContext): Promise<void> {
   };
 
   await ctx.editMessageCaption({
-    caption: '✦ Отправьте игровой ник для формирования заявки!',
-    reply_markup: new InlineKeyboard().text('🔙 В меню', 'return'),
+    caption: '✦ Отправьте <b>игровой ник</b> для формирования заявки!',
+    reply_markup: returnKeyboard(),
+    parse_mode: 'HTML',
   });
 }
 
@@ -177,9 +159,7 @@ export async function handleSigninNickname(ctx: MyContext): Promise<void> {
 
   await sendOrderNotification(orderText, orderModerationKeyboard(chatId, orderNumber, cart.total));
 
-  await ctx.reply('✅ Заявка отправлена! Ожидайте выполнения заказа.', {
-    reply_markup: mainMessageKeyboard(),
-  });
+  await ctx.reply('✅ Заявка отправлена! Ожидайте выполнения заказа.', { reply_markup: mainMessageKeyboard() });
 
   resetState(ctx);
 }
@@ -198,8 +178,9 @@ export async function initPurchasePrime(ctx: MyContext, label: string): Promise<
   };
 
   await ctx.editMessageCaption({
-    caption: `✦ Отправьте ID аккаунта на который хотите получить Прайм+ (${label})`,
-    reply_markup: new InlineKeyboard().text('🔙 В меню', 'return'),
+    caption: `✦ Отправьте <b>ID аккаунта</b> для получения Прайм+ (${label})`,
+    reply_markup: returnKeyboard(),
+    parse_mode: 'HTML',
   });
 }
 
@@ -213,8 +194,9 @@ export async function handlePrimeIdInput(ctx: MyContext): Promise<void> {
     pubgId,
   };
 
-  await ctx.reply('Отправьте игровой ник для формирования заявки!', {
-    reply_markup: new InlineKeyboard().text('🔙 Назад', 'return'),
+  await ctx.reply('Отправьте <b>игровой ник</b> для формирования заявки!', {
+    reply_markup: returnKeyboard(),
+    parse_mode: 'HTML',
   });
 }
 
@@ -226,70 +208,49 @@ export async function handlePrimeNickname(ctx: MyContext): Promise<void> {
   const state = ctx.session.state;
   const cart = ctx.session.cart;
   const pubgId = state.pubgId || '';
-  const userTag = getUserTag(ctx);
+  const firstName = ctx.from?.first_name || '';
+  const lastName = ctx.from?.last_name || '';
 
   if (!cart || cart.items.length === 0) {
     await ctx.reply('❌ Ошибка: товар не выбран!');
     return;
   }
 
-  const paymentItems: PaymentItem[] = cart.items.map(item => ({
-    name: `Прайм+ ${item.label}`,
-    quantity: 1,
-    price: item.price,
-  }));
+  const description = cart.items.map(item => `Прайм+ ${item.label}`).join(', ');
 
-  await ctx.reply('⏳ Обработка оплаты...');
+  const payment = await createPayment(cart.total, description);
 
-  const payment = await createPayment(chatId, cart.total, 'Покупка Прайм+', paymentItems);
-
-  if (!payment.success) {
-    await ctx.reply('❌ Ошибка оплаты. Попробуйте позже.', {
-      reply_markup: mainMessageKeyboard(),
-    });
+  if (!payment.success || !payment.paymentUrl || !payment.orderId) {
+    await ctx.reply(`❌ Ошибка создания платежа: ${payment.error || 'попробуйте позже'}`, { reply_markup: mainMessageKeyboard() });
     resetState(ctx);
     return;
   }
 
-  const products = getProducts(ProductCategory.PRIME);
-  const itemsDetails = cart.items.reduce<Record<string, number>>((acc, item) => {
-    acc[item.label] = (acc[item.label] || 0) + 1;
-    return acc;
-  }, {});
+  const botOrderId = generateOrderNumber(chatId);
 
-  const itemsText = Object.entries(itemsDetails)
-    .map(([label, count]) => {
-      const product = products.find(p => p.label === label);
-      return `➥ ${label} ×${count} = ${(product?.price || 0) * count}₽`;
-    })
-    .join('\n');
+  const paymentMessage = await ctx.reply(
+    `💳 Заказ #${botOrderId}\n` +
+      `Прайм+: ${cart.items.map(i => i.label).join(', ')}\n` +
+      `Сумма: ${cart.total}₽\n\n` +
+      `Нажмите кнопку ниже для оплаты.\n` +
+      `После оплаты заявка будет отправлена автоматически.`,
+    {
+      reply_markup: new InlineKeyboard().url('💳 Оплатить', payment.paymentUrl).row().text('❌ Отмена', 'return'),
+    },
+  );
 
-  const orderNumber = generateOrderNumber(chatId);
-  await saveOrder(chatId, orderNumber, {
-    orderId: orderNumber,
+  await savePendingPayment({
+    paycoreOrderId: payment.orderId,
+    botOrderId,
     userId: chatId,
     type: 'prime',
+    items: [...cart.items],
+    total: cart.total,
     nickname,
     pubgId,
-    items: cart.items,
-    total: cart.total,
-    status: 'paid',
-    paymentId: payment.paymentId,
-    timestamp: Date.now(),
-    userInfo: { username: userTag },
-  });
-
-  const orderText =
-    `💳 Новый оплаченный заказ (Прайм+)\n🧾#${orderNumber}\n` +
-    `🛍 Товары:\n${itemsText}\n💵 Оплачено: ${cart.total}₽\n` +
-    `🧸 Ник: ${nickname}\n🆔: ${pubgId}\n` +
-    `🪪 ${userTag} (ID: ${chatId})\n` +
-    `Payment: ${payment.paymentId}\n⚠️ Выберите действие ниже`;
-
-  await sendOrderNotification(orderText, orderModerationKeyboard(chatId, orderNumber, cart.total));
-
-  await ctx.reply('✅ Оплата прошла! Заявка отправлена, ожидайте выполнения.', {
-    reply_markup: mainMessageKeyboard(),
+    username: `${firstName} ${lastName}`.trim(),
+    messageId: paymentMessage.message_id,
+    createdAt: Date.now(),
   });
 
   resetState(ctx);

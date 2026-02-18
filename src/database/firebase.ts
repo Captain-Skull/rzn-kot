@@ -7,7 +7,7 @@ const serviceAccount = require('../../secrets/serviceAccountKey.json');
 
 const firebaseConfig = {
   credential: admin.credential.cert(serviceAccount),
-  databaseURL: 'https://project-for-freelance-default-rtdb.firebaseio.com/',
+  databaseURL: 'https://rzn-kot-bot-default-rtdb.firebaseio.com/',
 };
 
 admin.initializeApp(firebaseConfig);

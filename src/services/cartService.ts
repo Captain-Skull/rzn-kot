@@ -61,7 +61,7 @@ export function generateCartText(cart: Cart | undefined, category: ProductCatego
     })
     .join('\n');
 
-  return `<b>➤ Выберите UC для покупки (можно несколько)\n🛒 Ваша корзина:\n\n${itemsText}\n\n✦ Итого: <u>${cart.total}₽</u></b>`;
+  return `<tg-emoji emoji-id="5206182661256668709"></tg-emoji> <b>➤ Выберите UC для покупки (можно несколько)\n🛒 Ваша корзина:\n\n${itemsText}\n\n✦ Итого: <u>${cart.total}₽</u></b>`;
 }
 
 export async function updateCartMessage(ctx: MyContext, category: ProductCategory, messageId?: number): Promise<void> {
@@ -70,7 +70,7 @@ export async function updateCartMessage(ctx: MyContext, category: ProductCategor
 
   const cart = getCart(ctx);
   const caption = generateCartText(cart, category);
-  const keyboard = await shopKeyboard(cart, category);
+  const keyboard = await shopKeyboard(cart, category, chatId);
 
   try {
     if (messageId) {

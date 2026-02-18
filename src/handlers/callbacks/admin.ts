@@ -20,6 +20,7 @@ import {
   blocksManagementKeyboard,
 } from '../../keyboards/admin.js';
 import { adminBackKeyboard, cancelKeyboard } from '../../keyboards/common.js';
+import { receiveCodes } from '../../services/adminService.js';
 
 export async function handleAdmin(ctx: MyContext, data: string): Promise<void> {
   const chatId = ctx.chat!.id;
@@ -242,5 +243,9 @@ export async function handleAdmin(ctx: MyContext, data: string): Promise<void> {
       caption: 'Введите новое имя для администратора (БЕЗ @)',
       reply_markup: adminBackKeyboard(),
     });
+  }
+
+  if (data === 'receive-codes') {
+    await receiveCodes(ctx);
   }
 }

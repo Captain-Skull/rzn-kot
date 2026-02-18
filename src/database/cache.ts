@@ -1,5 +1,5 @@
 import { SUPPORT_USERNAME } from '../config/constants.js';
-import type { Product } from '../types/models.js';
+import type { PendingPayment, Product } from '../types/models.js';
 
 export interface AppCache {
   admins: Record<string, boolean>;
@@ -9,6 +9,7 @@ export interface AppCache {
   productsPrime: Product[];
   blockedUsers: Record<string, boolean>;
   adminUsername: string;
+  pendingPayments: Record<string, PendingPayment>;
 }
 
 export const cache: AppCache = {
@@ -19,4 +20,5 @@ export const cache: AppCache = {
   productsPrime: [],
   blockedUsers: {},
   adminUsername: SUPPORT_USERNAME,
+  pendingPayments: {},
 };

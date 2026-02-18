@@ -3,8 +3,9 @@ import type { Cart } from '../types/context.js';
 import { ProductCategory } from '../types/enums.js';
 import { getProducts } from '../database/repo/productRepo.js';
 import { getAllAvailableCodesCount } from '../database/repo/codeRepo.js';
+import { isAdmin } from '../database/repo/adminRepo.js';
 
-export async function shopKeyboard(cart: Cart | undefined, category: ProductCategory): Promise<InlineKeyboard> {
+export async function shopKeyboard(cart: Cart | undefined, category: ProductCategory, userId: number): Promise<InlineKeyboard> {
   const products = getProducts(category);
   const keyboard = new InlineKeyboard();
 
@@ -45,7 +46,10 @@ export async function shopKeyboard(cart: Cart | undefined, category: ProductCate
   }
 
   if (category === ProductCategory.CODES) {
-    keyboard.text('🛒 Оплатить', `cart_buy-codes`).row();
+    keyboard.text('Оплатить', `cart_buy-codes`).icon('5427365243548361496').row();
+    if (isAdmin(userId)) {
+      keyboard.text('🫳 Получить', 'receive-codes').row();
+    }
   } else if (category === ProductCategory.SIGNIN) {
     keyboard.text('🛒 Оставить заявку', `cart_buy-signin`).row();
   }
