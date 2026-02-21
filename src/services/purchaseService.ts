@@ -18,6 +18,7 @@ export async function purchaseCodes(ctx: MyContext): Promise<void> {
   const cart = ctx.session.cart;
   const firstName = ctx.from?.first_name || '';
   const lastName = ctx.from?.last_name || '';
+  const username = getUserTag(ctx);
 
   if (!cart || cart.items.length === 0) {
     await ctx.api.sendMessage(chatId, '❌ Корзина пуста!');
@@ -75,7 +76,8 @@ export async function purchaseCodes(ctx: MyContext): Promise<void> {
     type: 'codes',
     items: [...cart.items],
     total: cart.total,
-    username: `${firstName} ${lastName}`.trim(),
+    nickname: `${firstName} ${lastName}`.trim(),
+    username: username,
     messageId: paymentMessage.message_id,
     createdAt: Date.now(),
   });
@@ -115,6 +117,7 @@ export async function initPurchaseSignin(ctx: MyContext): Promise<void> {
 export async function handleSigninNickname(ctx: MyContext): Promise<void> {
   const chatId = ctx.chat!.id;
   const nickname = ctx.msg?.text;
+  const username = getUserTag(ctx);
   if (!nickname) return;
 
   const cart = ctx.session.cart;
@@ -144,6 +147,7 @@ export async function handleSigninNickname(ctx: MyContext): Promise<void> {
     userId: chatId,
     type: 'signin',
     nickname,
+    username,
     items: cart.items,
     total: cart.total,
     status: 'pending',
